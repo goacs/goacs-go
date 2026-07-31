@@ -46,6 +46,18 @@ type ACSSession struct {
 	ParameterNamesToQueryValues []types.ParameterInfo
 	ParametersToAdd             []types.ParameterValueStruct
 	ParametersToDelete          []types.ParameterValueStruct
+
+	// CurrentEventCodes holds every CWMP event code from the Inform that started this
+	// session (e.g. "0 BOOTSTRAP", "1 BOOT", "2 PERIODIC"), used by the provisioning
+	// rule matcher - unlike IsBoot/IsBootstrap this preserves the full set rather than
+	// collapsing it to two booleans.
+	CurrentEventCodes []string
+
+	// ProvisionedSetParams guards the provisioning pass that runs once the task queue
+	// has drained and freshly-read parameter values are available, so it fires exactly
+	// once per session even though TaskRunner.Run() re-checks the queue on every
+	// recursive call.
+	ProvisionedSetParams bool
 }
 
 var lock = sync.RWMutex{}
@@ -154,6 +166,10 @@ func (session *ACSSession) FillCPESessionFromInform(inform types.Inform) {
 	session.CPE.SerialNumber = inform.DeviceId.SerialNumber
 	session.IsBoot = inform.IsBootEvent() || inform.IsBootstrapEvent()
 	session.IsBootstrap = inform.IsBootstrapEvent()
+	session.CurrentEventCodes = make([]string, 0, len(inform.Events))
+	for _, event := range inform.Events {
+		session.CurrentEventCodes = append(session.CurrentEventCodes, event.EventCode)
+	}
 	session.CPE.AddParameterValues(inform.ParameterList)
 	session.FillCPESessionBaseInfo(inform.ParameterList)
 }

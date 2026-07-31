@@ -30,6 +30,7 @@ func (tr *TaskRunner) Run() {
 	tr.loadDeviceTasks()
 
 	if len(tr.reqRes.Session.Tasks) == 0 {
+		tr.runSetParamsProvisioningOnce()
 		return
 	}
 
@@ -116,6 +117,28 @@ func (tr *TaskRunner) loadDeviceTasks() {
 		if !tr.reqRes.Session.TaskExist(cpeTask) {
 			tr.reqRes.Session.AddTask(cpeTask)
 		}
+	}
+}
+
+// runSetParamsProvisioningOnce fires exactly once per session, at the point where the
+// task queue has drained naturally (GPN/GPV cascades finished, no operator tasks left)
+// and freshly-read parameter values are available. Mirrors the fallback branch in
+// goacs-php's TaskRunner::run() that queues provisions filtered on
+// Types::SetParameterValuesProcessor once nothing else is pending.
+func (tr *TaskRunner) runSetParamsProvisioningOnce() {
+	if tr.reqRes.Session.ProvisionedSetParams {
+		return
+	}
+	tr.reqRes.Session.ProvisionedSetParams = true
+
+	matcher := NewProvisionMatcher(tr.reqRes)
+	if err := matcher.QueueTasks(tr.reqRes.Session.CurrentEventCodes, acsxml.SetParameterValuesProcessor); err != nil {
+		log.Println("provision matcher error (SetParameterValuesProcessor):", err)
+		return
+	}
+
+	if len(tr.reqRes.Session.Tasks) > 0 {
+		tr.Run()
 	}
 }
 

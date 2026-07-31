@@ -54,6 +54,10 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		informDecision := methods.InformDecision{ReqRes: &reqRes}
 		informDecision.CpeInformRequestParser()
 
+		if err := NewProvisionMatcher(&reqRes).QueueTasks(reqRes.Session.CurrentEventCodes, acsxml.InformReq); err != nil {
+			log.Println("provision matcher error (Inform):", err)
+		}
+
 	case acsxml.EMPTY:
 		log.Println("EMPTY RESPONSE")
 		if len(session.Tasks) == 0 {

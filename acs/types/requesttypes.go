@@ -24,4 +24,11 @@ const (
 	RebootResp       string = "RebootResponse"
 	TransferComplete string = "TransferComplete"
 	TCResp           string = "TransferCompleteResponse"
+
+	// SetParameterValuesProcessor is not a real CWMP wire type - it is a synthetic
+	// request-type marker used only in the "requests" column of a provisioning rule,
+	// letting a rule target the point where the queue has drained and freshly-read
+	// parameter values are available, right before the session would otherwise end.
+	// Mirrors goacs-php's Types::SetParameterValuesProcessor.
+	SetParameterValuesProcessor string = "SetParameterValuesProcessor"
 )
