@@ -174,6 +174,113 @@ func TestBridge_Resume_WithoutSuspendedScript_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestBridge_GetParameterValues_BlocksUntilCPEResponds mirrors the AddObject test:
+// getParameterValues() must suspend the script, send a real GetParameterValues RPC,
+// and hand the CPE's actual values back once they arrive on a later round-trip.
+func TestBridge_GetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+
+	reqRes1 := newBridgeTestRequest(session, acsxml.InformReq, "")
+
+	script := `
+		local values = getParameterValues("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
+		log("got value", values["InternetGatewayDevice.DeviceInfo.SoftwareVersion"])
+	`
+
+	finished, err := Start(reqRes1, script)
+	require.NoError(t, err)
+	assert.False(t, finished, "script should be suspended waiting for the GetParameterValuesResponse")
+
+	written := reqRes1.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written, "<cwmp:GetParameterValues>")
+	assert.Contains(t, written, "<string>InternetGatewayDevice.DeviceInfo.SoftwareVersion</string>")
+
+	responseBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <ParameterList>
+        <ParameterValueStruct>
+          <Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name>
+          <Value xsi:type="xsd:string">1.2.3</Value>
+        </ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes2 := newBridgeTestRequest(session, acsxml.GPVResp, responseBody)
+
+	var finished2 bool
+	var err2 error
+	logged := captureLog(t, func() {
+		finished2, err2 = Resume(reqRes2)
+	})
+
+	require.NoError(t, err2)
+	assert.True(t, finished2)
+	assert.Contains(t, logged, "got value: 1.2.3")
+
+	// The returned value must also have landed in the session's local parameter cache.
+	value, err := session.CPE.GetParameterValue("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
+	require.NoError(t, err)
+	assert.Equal(t, "1.2.3", value)
+}
+
+// TestBridge_SetParameterValues_BlocksUntilCPEResponds mirrors the AddObject test for
+// the SetParameterValues RPC: it must suspend the script, send the real request, and
+// return the CPE-confirmed Status once the response arrives.
+func TestBridge_SetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+
+	reqRes1 := newBridgeTestRequest(session, acsxml.InformReq, "")
+
+	script := `
+		local status = setParameterValues({
+			["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID"] = "MyWifi",
+		})
+		log("setParameterValues result", tostring(status))
+	`
+
+	finished, err := Start(reqRes1, script)
+	require.NoError(t, err)
+	assert.False(t, finished, "script should be suspended waiting for the SetParameterValuesResponse")
+
+	written := reqRes1.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written, "<cwmp:SetParameterValues>")
+	assert.Contains(t, written, "<Name>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</Name>")
+	assert.Contains(t, written, "MyWifi")
+
+	responseBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:SetParameterValuesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <Status>0</Status>
+    </cwmp:SetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes2 := newBridgeTestRequest(session, acsxml.SPVResp, responseBody)
+
+	var finished2 bool
+	var err2 error
+	logged := captureLog(t, func() {
+		finished2, err2 = Resume(reqRes2)
+	})
+
+	require.NoError(t, err2)
+	assert.True(t, finished2)
+	assert.Contains(t, logged, "setParameterValues result: 0")
+
+	// The confirmed value must also have landed in the session's local parameter cache
+	// (no live DB in this test, so this only exercises the in-memory side of it).
+	value, err := session.CPE.GetParameterValue("InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID")
+	require.NoError(t, err)
+	assert.Equal(t, "MyWifi", value)
+}
+
 // Note: pump()'s local-step-timeout branch (a script that never finishes and never
 // calls a blocking function, e.g. an infinite loop) is not covered by a test here -
 // exercising it for real would mean waiting out the actual LocalStepTimeout (5s), and

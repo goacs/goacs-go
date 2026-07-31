@@ -96,6 +96,10 @@ type AddObjectResponseStruct struct {
 	Status         int `xml:"Body>AddObjectResponse>Status"`
 }
 
+type SetParameterValuesResponseStruct struct {
+	Status int `xml:"Body>SetParameterValuesResponse>Status"`
+}
+
 type DeleteObjectResponseStruct struct {
 	Status int `xml:"Body>DeleteObjectResponse>Status"`
 }

@@ -7,6 +7,9 @@ import (
 	"fmt"
 	acshttp "goacs/acs/http"
 	acsxml "goacs/acs/types"
+	"goacs/repository"
+	"goacs/repository/mysql"
+	"log"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -30,10 +33,12 @@ type pendingCall struct {
 }
 
 type rpcResult struct {
-	addObject    *acsxml.AddObjectResponseStruct
-	deleteObject *acsxml.DeleteObjectResponseStruct
-	fault        *acsxml.Fault
-	err          error
+	addObject          *acsxml.AddObjectResponseStruct
+	deleteObject       *acsxml.DeleteObjectResponseStruct
+	getParameterValues *acsxml.GetParameterValuesResponse
+	setParameterValues *acsxml.SetParameterValuesResponseStruct
+	fault              *acsxml.Fault
+	err                error
 }
 
 type outcome struct{ err error }
@@ -224,6 +229,26 @@ func matchResponse(kind string, reqRes *acshttp.CPERequest) rpcResult {
 		}
 		return rpcResult{}
 
+	case "GetParameterValues":
+		if reqRes.ReqType != acsxml.GPVResp {
+			return rpcResult{err: protocolViolation(kind, reqRes.ReqType)}
+		}
+		var v acsxml.GetParameterValuesResponse
+		if err := xml.Unmarshal(reqRes.Body, &v); err != nil {
+			return rpcResult{err: err}
+		}
+		return rpcResult{getParameterValues: &v}
+
+	case "SetParameterValues":
+		if reqRes.ReqType != acsxml.SPVResp {
+			return rpcResult{err: protocolViolation(kind, reqRes.ReqType)}
+		}
+		var v acsxml.SetParameterValuesResponseStruct
+		if err := xml.Unmarshal(reqRes.Body, &v); err != nil {
+			return rpcResult{err: err}
+		}
+		return rpcResult{setParameterValues: &v}
+
 	default:
 		return rpcResult{err: fmt.Errorf("bridge: unknown pending call kind %q", kind)}
 	}
@@ -289,5 +314,108 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 		}
 
 		return 0
+	}))
+
+	// getParameterValues issues a real GetParameterValues RPC to the CPE and blocks
+	// for its reply, unlike getParameterValue (functions.go) which only ever reads the
+	// session's local cache/DB. Every value returned is also written into the local
+	// cache so it's immediately visible to getParameterValue/parameterExist for the
+	// rest of the script.
+	L.SetGlobal("getParameterValues", L.NewFunction(func(L *lua.LState) int {
+		n := L.GetTop()
+		if n == 0 {
+			L.RaiseError("getParameterValues(): at least one parameter path is required")
+			return 0
+		}
+
+		infos := make([]acsxml.ParameterInfo, n)
+		for i := 1; i <= n; i++ {
+			infos[i-1] = acsxml.ParameterInfo{Name: L.CheckString(i)}
+		}
+
+		result, err := bc.call("GetParameterValues", func(reqRes *acshttp.CPERequest) string {
+			return reqRes.Envelope.GPVRequest(infos)
+		})
+		if err != nil {
+			L.RaiseError("getParameterValues(): %v", err)
+			return 0
+		}
+		if result.fault != nil {
+			L.RaiseError("getParameterValues(): CPE fault %s: %s", result.fault.DetailFaultCode, result.fault.DetailFaultString)
+			return 0
+		}
+
+		tbl := L.NewTable()
+		for _, parameter := range result.getParameterValues.ParameterList {
+			bc.reqRes.Session.CPE.AddParameter(parameter)
+			L.SetField(tbl, parameter.Name, lua.LString(parameter.ValueStruct.Value))
+		}
+		L.Push(tbl)
+		return 1
+	}))
+
+	// setParameterValues issues a real SetParameterValues RPC to the CPE and blocks for
+	// its reply, unlike setParameter (functions.go) which only updates the local
+	// cache/DB and defers the actual CWMP write to a later round-trip via the task
+	// queue. Takes a table of {[path] = value}. On a confirmed (non-fault) reply, the
+	// local cache is updated - and persisted to the DB, same as setParameter - so the
+	// rest of the script and the admin panel both see the value the CPE just confirmed.
+	L.SetGlobal("setParameterValues", L.NewFunction(func(L *lua.LState) int {
+		tbl := L.CheckTable(1)
+
+		var parameters []acsxml.ParameterValueStruct
+		var rangeErr error
+		tbl.ForEach(func(k, v lua.LValue) {
+			if rangeErr != nil {
+				return
+			}
+			if k.Type() != lua.LTString {
+				rangeErr = fmt.Errorf("setParameterValues(): table keys must be parameter path strings, got %s", k.Type())
+				return
+			}
+
+			name := k.String()
+			parameter := acsxml.ParameterValueStruct{
+				Name:        name,
+				ValueStruct: acsxml.ValueStruct{Value: v.String()},
+			}
+			if current := bc.reqRes.Session.CPE.GetParameter(name); current != nil {
+				parameter.ValueStruct.Type = current.ValueStruct.Type
+			}
+			parameters = append(parameters, parameter)
+		})
+		if rangeErr != nil {
+			L.RaiseError("%v", rangeErr)
+			return 0
+		}
+		if len(parameters) == 0 {
+			L.RaiseError("setParameterValues(): at least one parameter is required")
+			return 0
+		}
+
+		result, err := bc.call("SetParameterValues", func(reqRes *acshttp.CPERequest) string {
+			return reqRes.Envelope.SetParameterValues(parameters)
+		})
+		if err != nil {
+			L.RaiseError("setParameterValues(): %v", err)
+			return 0
+		}
+		if result.fault != nil {
+			L.RaiseError("setParameterValues(): CPE fault %s: %s", result.fault.DetailFaultCode, result.fault.DetailFaultString)
+			return 0
+		}
+
+		for _, parameter := range parameters {
+			bc.reqRes.Session.CPE.AddParameter(parameter)
+			if repository.HasConnection() {
+				cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+				if _, err := cpeRepository.UpdateParameter(&bc.reqRes.Session.CPE, parameter); err != nil {
+					log.Println("setParameterValues: update error:", err)
+				}
+			}
+		}
+
+		L.Push(lua.LNumber(result.setParameterValues.Status))
+		return 1
 	}))
 }
