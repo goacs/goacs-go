@@ -82,9 +82,17 @@ func (tr *TaskRunner) runScriptTask(t queue.ScriptTask) {
 
 	tr.reqRes.Session.RunnedScripts++
 
-	scriptEngine := scripts.NewScriptEngine(tr.reqRes)
-	if _, err := scriptEngine.Execute(t.ScriptSource()); err != nil {
+	finished, err := scripts.Start(tr.reqRes, t.ScriptSource())
+	if err != nil {
 		log.Println("script execution error:", err)
+	}
+
+	if !finished {
+		// The script issued a blocking RPC (addObject, reboot, ...): its request has
+		// already been written as this round-trip's response by scripts.Start(), and
+		// the script goroutine is parked waiting for the CPE's reply on a future
+		// request. Nothing more to do for this HTTP round-trip.
+		return
 	}
 
 	parameterDecisions := methods.ParameterDecisions{ReqRes: tr.reqRes}

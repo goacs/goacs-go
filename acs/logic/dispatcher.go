@@ -6,6 +6,7 @@ import (
 	"goacs/acs"
 	acshttp "goacs/acs/http"
 	"goacs/acs/methods"
+	"goacs/acs/scripts"
 	acsxml "goacs/acs/types"
 	"goacs/repository"
 	"io"
@@ -48,6 +49,22 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 	}
 
 	acs.AddCookieToResponseWriter(reqRes.Session, reqRes.Response)
+
+	if session.Script != nil {
+		// A script is suspended waiting for the CPE's reply to a blocking RPC
+		// (addObject, reboot, ...) - this round-trip belongs to it, regardless of
+		// what envelope type was parsed above. Takes priority over the normal
+		// per-type switch below.
+		finished, err := scripts.Resume(&reqRes)
+		if err != nil {
+			log.Println("script resume error:", err)
+		}
+		if !finished {
+			return
+		}
+		NewTaskRunner(&reqRes, reqType).Run()
+		return
+	}
 
 	switch reqType {
 	case acsxml.InformReq:

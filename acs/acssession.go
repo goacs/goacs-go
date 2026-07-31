@@ -58,6 +58,22 @@ type ACSSession struct {
 	// once per session even though TaskRunner.Run() re-checks the queue on every
 	// recursive call.
 	ProvisionedSetParams bool
+
+	// Script holds the suspended state of a script execution that issued a blocking
+	// RPC (addObject, reboot, ...) and is waiting for the CPE's response, which will
+	// arrive as a separate HTTP request. nil means no script is currently suspended.
+	//
+	// This is declared as a narrow interface (just Cancel()) rather than the concrete
+	// *scripts.Session type to avoid an import cycle: acs/scripts needs acs/http,
+	// which needs this acs package, so this package cannot import acs/scripts.
+	Script ScriptSession
+}
+
+// ScriptSession is the minimal surface this package needs from a suspended script
+// execution - just enough to cancel it during session cleanup/reaping. The dispatcher
+// and TaskRunner (acs/logic) talk to the concrete type directly via acs/scripts.
+type ScriptSession interface {
+	Cancel()
 }
 
 var lock = sync.RWMutex{}
@@ -144,6 +160,12 @@ func CreateEmptySession(sessionId string) *ACSSession {
 
 func DeleteSession(sessionId string) {
 	lock.Lock()
+	if session, ok := acsSessions[sessionId]; ok && session.Script != nil {
+		// A script suspended waiting for a CPE response that will now never be
+		// correlated to anything (the session is gone) - cancel it immediately
+		// rather than waiting for its own timeout, freeing the goroutine promptly.
+		session.Script.Cancel()
+	}
 	delete(acsSessions, sessionId)
 	lock.Unlock()
 }
