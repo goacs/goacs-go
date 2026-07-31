@@ -5,6 +5,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"goacs/acs/logic"
+	"goacs/http/middleware/auth"
 	"goacs/lib"
 	"time"
 )
@@ -56,13 +57,14 @@ func Start() {
 }
 
 func registerAcsHandler(router *gin.Engine) {
-	router.GET("/acs", func(ctx *gin.Context) {
-		defer ctx.Request.Body.Close()
-		logic.CPERequestDecision(ctx.Request, ctx.Writer)
-	})
+	acsGroup := router.Group("/acs")
+	acsGroup.Use(auth.ACSAuthMiddleware())
 
-	router.POST("/acs", func(ctx *gin.Context) {
+	handler := func(ctx *gin.Context) {
 		defer ctx.Request.Body.Close()
 		logic.CPERequestDecision(ctx.Request, ctx.Writer)
-	})
+	}
+
+	acsGroup.GET("", handler)
+	acsGroup.POST("", handler)
 }

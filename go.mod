@@ -3,7 +3,6 @@ module goacs
 go 1.13
 
 require (
-	github.com/AHAOAHA/go-http-digest-auth-client v0.6.6
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/doug-martin/goqu/v9 v9.10.0
 	github.com/gin-contrib/cors v1.3.1
