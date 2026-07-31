@@ -33,6 +33,7 @@ func (se *ScriptEngine) registerFunctions(L *lua.LState) {
 	L.SetGlobal("kick", L.NewFunction(se.luaKick))
 	L.SetGlobal("provision", L.NewFunction(se.luaKick)) // alias, same as goacs-php
 	L.SetGlobal("uploadFirmware", L.NewFunction(se.luaUploadFirmware))
+	L.SetGlobal("safe", L.NewFunction(se.luaSafe))
 }
 
 func (se *ScriptEngine) luaSetParameter(L *lua.LState) int {
@@ -234,4 +235,41 @@ func (se *ScriptEngine) luaUploadFirmware(L *lua.LState) int {
 	se.ReqRes.Session.AddTask(dlTask)
 
 	return 0
+}
+
+// luaSafe is a global, always-available alternative to writing pcall(...) at every call
+// site. Every blocking bridge function (addObject, deleteObject, reboot,
+// getParameterValues, setParameterValues - see bridge.go) raises a Lua error on a CPE
+// fault or protocol violation, so an unprotected call aborts the whole script. safe(fn,
+// ...) calls fn(...) in protected mode - same semantics as Lua's built-in pcall, and in
+// fact mirrors gopher-lua's own basePCall (baselib.go) - but additionally logs the
+// failure through the same [script:<serial>] channel as log(), so scripts get
+// fail-soft-with-a-log-line behavior without repeating pcall+log boilerplate at every
+// call site:
+//
+//	local ok, params = safe(getParameterValues, path)
+//	if not ok then return end
+func (se *ScriptEngine) luaSafe(L *lua.LState) int {
+	L.CheckAny(1)
+	v := L.Get(1)
+	if v.Type() != lua.LTFunction && L.GetMetaField(v, "__call").Type() != lua.LTFunction {
+		L.RaiseError("safe(): first argument must be a function, got %s", v.Type().String())
+		return 0
+	}
+
+	nargs := L.GetTop() - 1
+	if err := L.PCall(nargs, lua.MultRet, nil); err != nil {
+		message := err.Error()
+		if apiErr, ok := err.(*lua.ApiError); ok {
+			message = apiErr.Object.String()
+		}
+		log.Printf("[script:%s] safe() call failed: %s\n", se.ReqRes.Session.CPE.SerialNumber, message)
+
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(message))
+		return 2
+	}
+
+	L.Insert(lua.LTrue, 1)
+	return L.GetTop()
 }

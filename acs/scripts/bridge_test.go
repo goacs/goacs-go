@@ -281,6 +281,58 @@ func TestBridge_SetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
 	assert.Equal(t, "MyWifi", value)
 }
 
+// TestBridge_Safe_CPEFault_DoesNotAbortScript proves safe() lets a script survive a real
+// CPE fault from a blocking bridge function: unlike a bare addObject() call (see
+// TestBridge_AddObject_CPEFault_RaisesLuaError), the script keeps running past the
+// faulting call, and the failure still gets logged automatically.
+func TestBridge_Safe_CPEFault_DoesNotAbortScript(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+
+	reqRes1 := newBridgeTestRequest(session, acsxml.InformReq, "")
+
+	script := `
+		local ok, err = safe(addObject, "InternetGatewayDevice.LANDevice.1.WLANConfiguration.")
+		log("safe() returned", tostring(ok) .. " " .. tostring(err))
+		log("script kept running", "after the faulting call")
+	`
+
+	finished, err := Start(reqRes1, script)
+	require.NoError(t, err)
+	assert.False(t, finished, "script should be suspended waiting for the AddObjectResponse")
+
+	faultBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <soapenv:Fault>
+      <faultcode>Client</faultcode>
+      <faultstring>CWMP fault</faultstring>
+      <detail>
+        <Fault>
+          <FaultCode>9005</FaultCode>
+          <FaultString>Invalid parameter name</FaultString>
+        </Fault>
+      </detail>
+    </soapenv:Fault>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes2 := newBridgeTestRequest(session, acsxml.FaultResp, faultBody)
+
+	var finished2 bool
+	var err2 error
+	logged := captureLog(t, func() {
+		finished2, err2 = Resume(reqRes2)
+	})
+
+	require.NoError(t, err2, "safe() must swallow the fault instead of letting it abort the script")
+	assert.True(t, finished2, "script should finish naturally, having run past the faulting call")
+	assert.Contains(t, logged, "safe() call failed:", "safe() must log the failure automatically")
+	assert.Contains(t, logged, "9005")
+	assert.Contains(t, logged, "safe() returned: false")
+	assert.Contains(t, logged, "script kept running: after the faulting call")
+}
+
 // Note: pump()'s local-step-timeout branch (a script that never finishes and never
 // calls a blocking function, e.g. an infinite loop) is not covered by a test here -
 // exercising it for real would mean waiting out the actual LocalStepTimeout (5s), and
