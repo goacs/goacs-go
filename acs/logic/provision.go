@@ -96,8 +96,12 @@ func (m *ProvisionMatcher) evaluateRules(rules []provisions.ProvisionRule) bool 
 	return true
 }
 
+// evaluateRule resolves a "device.root." prefix in the rule's Parameter to the current
+// session's actual root (e.g. "InternetGatewayDevice." or "Device.") - the same prefix
+// Lua provisioning scripts use for the same purpose (see acs/scripts/README.md), so a
+// rule's Parameter and a script's parameter paths read the same way.
 func (m *ProvisionMatcher) evaluateRule(rule provisions.ProvisionRule) bool {
-	parameter := strings.Replace(rule.Parameter, "$root.", m.reqRes.Session.CPE.Root+".", 1)
+	parameter := strings.Replace(rule.Parameter, "device.root.", m.reqRes.Session.CPE.Root+".", 1)
 
 	// Prefer the value already loaded into this session (freshly read from the CPE);
 	// fall back to the last known value cached in the DB, same order PHP checks in.

@@ -1,6 +1,10 @@
 package logic
 
 import (
+	"goacs/acs"
+	acshttp "goacs/acs/http"
+	acsxml "goacs/acs/types"
+	"goacs/models/provisions"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,4 +52,28 @@ func TestRequestListMatches(t *testing.T) {
 	assert.True(t, requestListMatches(nil, "Inform"), "empty configured list matches any request type")
 	assert.True(t, requestListMatches([]string{"Inform", "GetParameterValuesResponse"}, "Inform"))
 	assert.False(t, requestListMatches([]string{"Inform"}, "SetParameterValuesProcessor"))
+}
+
+// TestEvaluateRule_DeviceRootPrefix proves a rule's Parameter resolves "device.root." to
+// the session's actual root the same way Lua scripts resolve device.root (see
+// acs/scripts/README.md), so writing a provisioning rule and writing a script read the
+// same way.
+func TestEvaluateRule_DeviceRootPrefix(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+	session.CPE.AddParameterValues([]acsxml.ParameterValueStruct{
+		{Name: "InternetGatewayDevice.DeviceInfo.ProductClass", ValueStruct: acsxml.ValueStruct{Value: "ONT-5G"}},
+	})
+
+	matcher := &ProvisionMatcher{reqRes: &acshttp.CPERequest{Session: session}}
+
+	rule := provisions.ProvisionRule{
+		Parameter: "device.root.DeviceInfo.ProductClass",
+		Operator:  "==",
+		Value:     "ONT-5G",
+	}
+	assert.True(t, matcher.evaluateRule(rule))
+
+	rule.Value = "some-other-class"
+	assert.False(t, matcher.evaluateRule(rule))
 }

@@ -10,20 +10,55 @@ import (
 	"goacs/repository"
 	"goacs/repository/mysql"
 	"log"
+	"strconv"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
-// ScriptTotalTimeout bounds the entire lifetime of one script execution, including
-// every blocking RPC round-trip it makes - not just CPU time. If the CPE never answers
-// a blocking call within this budget, the script is aborted.
-const ScriptTotalTimeout = 5 * time.Minute
+// DefaultScriptTotalTimeout is the fallback used when the "script_total_timeout_seconds"
+// config key (Settings screen) is unset or invalid. Bounds the entire lifetime of one
+// script execution, including every blocking RPC round-trip it makes - not just CPU
+// time. If the CPE never answers a blocking call within this budget, the script is
+// aborted. Raise this via config for devices that are known to take a long time to
+// reply mid-script (e.g. a firmware upgrade whose reboot/TransferComplete round-trip is
+// slow) rather than editing the default.
+const DefaultScriptTotalTimeout = 5 * time.Minute
 
-// LocalStepTimeout guards against a script that neither finishes nor calls a blocking
-// function (e.g. an accidental infinite loop) - this is a local CPU-bound wait, so it
-// can be short.
-const LocalStepTimeout = 5 * time.Second
+const scriptTotalTimeoutConfigKey = "script_total_timeout_seconds"
+
+// DefaultLocalStepTimeout is the fallback used when the "script_local_step_timeout_seconds"
+// config key is unset or invalid. Guards against a script that neither finishes nor
+// calls a blocking function (e.g. an accidental infinite loop) - this is a local
+// CPU-bound wait, so it can usually stay short even when the total timeout above is
+// raised for slow-updating devices.
+const DefaultLocalStepTimeout = 5 * time.Second
+
+const localStepTimeoutConfigKey = "script_local_step_timeout_seconds"
+
+// configuredTimeoutSeconds reads a positive integer number of seconds from the given
+// config key, falling back to def if there's no DB connection or the value is missing,
+// non-numeric, or non-positive - same live-lookup-with-fallback pattern as piiValue
+// (functions.go). Config is re-read on every call (not cached), so changing it from the
+// admin panel takes effect on the next script/round-trip without a restart.
+func configuredTimeoutSeconds(key string, def time.Duration) time.Duration {
+	if !repository.HasConnection() {
+		return def
+	}
+
+	configRepository := mysql.NewConfigRepository(repository.GetConnection())
+	value, err := configRepository.GetValue(key)
+	if err != nil {
+		return def
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return def
+	}
+
+	return time.Duration(seconds) * time.Second
+}
 
 type pendingCall struct {
 	kind       string
@@ -76,7 +111,7 @@ type bridgeContext struct {
 // round-trip's HTTP response (finished=false) and the script goroutine is parked,
 // waiting for a future round-trip to deliver the CPE's reply via Resume().
 func Start(reqRes *acshttp.CPERequest, script string) (finished bool, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ScriptTotalTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), configuredTimeoutSeconds(scriptTotalTimeoutConfigKey, DefaultScriptTotalTimeout))
 
 	bc := &bridgeContext{reqRes: reqRes, ctx: ctx}
 	bs := &Session{
@@ -122,6 +157,8 @@ func Resume(reqRes *acshttp.CPERequest) (finished bool, err error) {
 }
 
 func pump(bs *Session, reqRes *acshttp.CPERequest) (finished bool, err error) {
+	localStepTimeout := configuredTimeoutSeconds(localStepTimeoutConfigKey, DefaultLocalStepTimeout)
+
 	select {
 	case call := <-bs.fromLua:
 		bs.pending = call
@@ -133,10 +170,10 @@ func pump(bs *Session, reqRes *acshttp.CPERequest) (finished bool, err error) {
 		reqRes.Session.Script = nil
 		return true, o.err
 
-	case <-time.After(LocalStepTimeout):
+	case <-time.After(localStepTimeout):
 		bs.cancel()
 		reqRes.Session.Script = nil
-		return true, fmt.Errorf("script did not call a blocking function or finish within %s", LocalStepTimeout)
+		return true, fmt.Errorf("script did not call a blocking function or finish within %s", localStepTimeout)
 	}
 }
 

@@ -38,10 +38,12 @@ devices:
 local ssidPath = device.root .. ".LANDevice.1.WLANConfiguration.1.SSID"
 ```
 
-**`$root.` is not a script-level feature.** It only exists as a substitution done by the
-provisioning rule matcher (`acs/logic/provision.go`) when evaluating a `ProvisionRule`'s
-`Parameter` column *before* deciding whether to run the script at all - it is never
-rewritten inside the Lua source itself. Inside a script, always use `device.root`.
+A `ProvisionRule`'s `Parameter` column (evaluated *before* deciding whether to run the
+script at all - see `acs/logic/provision.go`) uses the same `device.root` spelling: a
+`"device.root."` prefix there is resolved to the session's actual root the same way it
+is inside the script, so a rule's `Parameter` and a script's parameter paths read
+identically. This is a plain string substitution done by the Go matcher, not Lua - it
+is never evaluated as a table access there, just textually replaced before matching.
 
 ## Non-blocking functions
 
@@ -142,7 +144,7 @@ A `Provision` (`models/provisions`) bundles:
 - `Requests` - CSV of request types. Empty matches any request type.
 - `Rules` - zero or more `{Parameter, Operator, Value}` conditions, ANDed together
   (operators: `==`, `!=`, `in`, `not in`, `>`, `>=`, `<`, `<=`). `Parameter` may use the
-  `$root.` prefix described above.
+  `device.root.` prefix described above, e.g. `"device.root.DeviceInfo.ProductClass"`.
 - `Script` - one or more Lua bodies; each is queued as its own `RunScriptTask`.
 
 Whenever a CWMP request comes in, every provision whose events/requests/rules all match
@@ -252,12 +254,23 @@ uploadFirmware("firmware-v2.1.bin")
 
 ## Limits and gotchas
 
-- **`ScriptTotalTimeout` = 5 minutes** bounds the entire script lifetime, including every
-  blocking RPC round-trip it makes. If the CPE never answers, the script is aborted.
-- **`LocalStepTimeout` = 5 seconds** guards against a script that neither finishes nor
-  calls a blocking function (e.g. an accidental infinite loop).
-- **`RunScriptMaxCount` = 30** scripts per session (`acs/logic/taskrunner.go`) - a safety
-  cap against a provisioning rule that would otherwise re-queue itself forever.
+All three limits below are configurable from the admin panel's Settings screen (they
+persist to the `config` table, same mechanism as `pii_min`/`pii_max` - see
+`repository/mysql/configrepository.go`). Each is re-read live on every use, so a change
+takes effect on the next script/round-trip without restarting the server. Raise
+`script_total_timeout_seconds` (and, if needed, `script_local_step_timeout_seconds`) for
+devices that are known to take a long time mid-script - e.g. a firmware upgrade whose
+reboot/`TransferComplete` round-trip is slow.
+
+| Config key | Default | Purpose |
+|---|---|---|
+| `script_total_timeout_seconds` | 300 (5 min) | Bounds the entire script lifetime, including every blocking RPC round-trip it makes. If the CPE never answers, the script is aborted. |
+| `script_local_step_timeout_seconds` | 5 | Guards against a script that neither finishes nor calls a blocking function (e.g. an accidental infinite loop) - a local CPU-bound wait, so it can usually stay short even when the total timeout above is raised. |
+| `run_script_max_count` | 30 | Scripts per session (`acs/logic/taskrunner.go`) - a safety cap against a provisioning rule that would otherwise re-queue itself forever. |
+
+Each falls back to its default if the key is unset, non-numeric, or non-positive - see
+`configuredTimeoutSeconds` (`acs/scripts/bridge.go`) and `runScriptMaxCount`
+(`acs/logic/taskrunner.go`).
 - There is no CPE simulator built into this repo; use the sibling `goacs-client` project
   to exercise scripts that call `addObject`, `deleteObject`, `reboot`,
   `getParameterValues` or `setParameterValues` against a real CWMP round-trip.

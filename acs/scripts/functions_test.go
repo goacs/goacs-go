@@ -5,6 +5,7 @@ import (
 	acshttp "goacs/acs/http"
 	acsxml "goacs/acs/types"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
@@ -105,4 +106,17 @@ func TestSetParameter_InvalidFlags_RaisesLuaError(t *testing.T) {
 
 	_, err := se.Execute(`setParameter("Some.Path", "value", "not-a-real-flag-set-Q")`)
 	assert.Error(t, err)
+}
+
+// TestConfiguredTimeoutSeconds_FallsBackWithoutConnection covers the path reachable
+// without a live database: no test in this package ever calls repository.InitConnection,
+// so repository.HasConnection() is false here, and configuredTimeoutSeconds must return
+// the given default untouched rather than erroring or blocking. The "a real
+// script_total_timeout_seconds/script_local_step_timeout_seconds config row overrides
+// the default" path needs a live MySQL instance and is exercised via integration
+// testing, same convention as acs/logic's runScriptMaxCount.
+func TestConfiguredTimeoutSeconds_FallsBackWithoutConnection(t *testing.T) {
+	assert.Equal(t, 42*time.Second, configuredTimeoutSeconds("some_key_nobody_set", 42*time.Second))
+	assert.Equal(t, DefaultScriptTotalTimeout, configuredTimeoutSeconds(scriptTotalTimeoutConfigKey, DefaultScriptTotalTimeout))
+	assert.Equal(t, DefaultLocalStepTimeout, configuredTimeoutSeconds(localStepTimeoutConfigKey, DefaultLocalStepTimeout))
 }

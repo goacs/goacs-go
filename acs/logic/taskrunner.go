@@ -9,9 +9,37 @@ import (
 	"goacs/models/tasks"
 	"goacs/repository/mysql"
 	"log"
+	"strconv"
+
+	"github.com/jmoiron/sqlx"
 )
 
-const RunScriptMaxCount = 30
+// DefaultRunScriptMaxCount is the fallback used when the "run_script_max_count" config
+// key (Settings screen) is unset or invalid - a safety cap against a provisioning rule
+// that would otherwise re-queue itself forever within a single HTTP round-trip.
+const DefaultRunScriptMaxCount = 30
+
+const runScriptMaxCountConfigKey = "run_script_max_count"
+
+// runScriptMaxCount reads a positive integer from the "run_script_max_count" config key,
+// falling back to DefaultRunScriptMaxCount if it's missing, non-numeric, or non-positive
+// - same live-lookup-with-fallback pattern as scripts.configuredTimeoutSeconds. Config is
+// re-read on every call (not cached), so changing it from the admin panel takes effect
+// on the next round-trip without a restart.
+func runScriptMaxCount(db *sqlx.DB) int {
+	configRepository := mysql.NewConfigRepository(db)
+	value, err := configRepository.GetValue(runScriptMaxCountConfigKey)
+	if err != nil {
+		return DefaultRunScriptMaxCount
+	}
+
+	count, err := strconv.Atoi(value)
+	if err != nil || count <= 0 {
+		return DefaultRunScriptMaxCount
+	}
+
+	return count
+}
 
 // TaskRunner drains the session's task queue for the current HTTP round-trip, mirroring
 // goacs-php's App\ACS\Logic\TaskRunner::run(). CWMP is one SOAP body per HTTP response,
@@ -73,7 +101,7 @@ func (tr *TaskRunner) Run() {
 }
 
 func (tr *TaskRunner) runScriptTask(t queue.ScriptTask) {
-	if tr.reqRes.Session.RunnedScripts >= RunScriptMaxCount {
+	if tr.reqRes.Session.RunnedScripts >= runScriptMaxCount(tr.reqRes.DBConnection) {
 		// Script budget for this session exhausted - stop without writing a response,
 		// same as the legacy dispatcher (RunScript matched no other if/else branch
 		// once the count guard failed).

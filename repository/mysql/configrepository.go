@@ -69,9 +69,13 @@ func (r *ConfigRepository) GetValue(key string) (string, error) {
 
 	query, args, _ := dialect.From("config").
 		Prepared(true).
+		Select("config_value").
 		Where(goqu.C("config_key").Eq(key)).ToSQL()
 
-	err := r.db.Select(&value, query, args...)
+	// Get (single row, scalar dest), not Select (which requires a slice destination and
+	// therefore always failed here with "expected slice but got string" regardless of
+	// whether the row existed - see Exist() above, which already used the correct call).
+	err := r.db.Get(&value, query, args...)
 
 	if err != nil {
 		return "", err
