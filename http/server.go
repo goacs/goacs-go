@@ -62,7 +62,7 @@ func registerAcsHandler(router *gin.Engine) {
 
 	handler := func(ctx *gin.Context) {
 		defer ctx.Request.Body.Close()
-		logic.CPERequestDecision(ctx.Request, ctx.Writer)
+		logic.HandleCPERequest(ctx.Request, ctx.Writer)
 	}
 
 	acsGroup.GET("", handler)
