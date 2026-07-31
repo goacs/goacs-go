@@ -2,14 +2,17 @@ package methods
 
 import (
 	"encoding/xml"
+	acscontext "goacs/acs/context"
 	"goacs/acs/http"
 	acsxml "goacs/acs/types"
+	"goacs/lib/cache"
 	"goacs/models/cpe"
 	"goacs/models/tasks"
 	"goacs/repository"
 	"goacs/repository/mysql"
 	"log"
 	"strings"
+	"time"
 )
 
 const MAX_GPN_REQUESTS = 50
@@ -134,6 +137,14 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 	_, _, _ = cpeRepository.UpdateOrCreate(&pd.ReqRes.Session.CPE)
 
 	pd.ReqRes.Session.GPVCount--
+
+	// On-demand lookup: if GET /api/device/:uuid/lookup armed this flag before
+	// kicking the device, snapshot the values it just returned into the cache
+	// so GET /api/device/:uuid/parameters/cached can serve them. One-shot via
+	// TTL expiry, same as goacs-php's Context (no explicit consume/forget).
+	if _, enabled := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, pd.ReqRes.Session.CPE.SerialNumber)); enabled {
+		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
+	}
 
 	//log.Println(pd.CPERequest.Session.CPE.ParameterValues)
 	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {

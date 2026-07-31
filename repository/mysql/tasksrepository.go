@@ -141,3 +141,8 @@ func (t *TasksRepository) DoneTask(task_id int64) {
 	_, _ = t.db.Exec("UPDATE tasks SET done_at = ? WHERE id = ?", time.Now(), task_id)
 
 }
+
+func (t *TasksRepository) Delete(id int64) error {
+	_, err := t.db.Exec("DELETE FROM tasks WHERE id = ?", id)
+	return err
+}

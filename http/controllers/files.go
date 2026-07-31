@@ -98,6 +98,50 @@ func UploadFile(ctx *gin.Context) {
 	response.ResponseData(ctx, FileInfoResponse{Size: fileHeader.Size, Filename: safeName})
 }
 
+func ShowFile(ctx *gin.Context) {
+	env := lib.Env{}
+
+	filePath, safeName, err := resolveStoragePath(env, ctx.Param("filename"))
+	if err != nil {
+		response.ResponseError(ctx, http.StatusBadRequest, "invalid filename", err)
+		return
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		response.ResponseError(ctx, http.StatusNotFound, "Not found", "")
+		return
+	}
+
+	response.ResponseData(ctx, FileInfoResponse{
+		Size:     info.Size(),
+		Filename: safeName,
+		IsDir:    info.IsDir(),
+		ModTime:  info.ModTime(),
+	})
+}
+
+func DeleteFile(ctx *gin.Context) {
+	env := lib.Env{}
+
+	filePath, _, err := resolveStoragePath(env, ctx.Param("filename"))
+	if err != nil {
+		response.ResponseError(ctx, http.StatusBadRequest, "invalid filename", err)
+		return
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		if os.IsNotExist(err) {
+			response.ResponseError(ctx, http.StatusNotFound, "Not found", "")
+			return
+		}
+		response.ResponseError(ctx, http.StatusInternalServerError, "Cannot delete file", err)
+		return
+	}
+
+	response.ResponseData(ctx, "")
+}
+
 func DownloadFile(ctx *gin.Context) {
 	env := lib.Env{}
 

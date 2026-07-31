@@ -8,10 +8,12 @@ import (
 	"goacs/acs/methods"
 	"goacs/acs/scripts"
 	acsxml "goacs/acs/types"
+	"goacs/models/log"
 	"goacs/repository"
+	"goacs/repository/mysql"
 	"io"
 	"io/ioutil"
-	"log"
+	stdlog "log"
 	"net/http"
 )
 
@@ -44,11 +46,13 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 	}
 
 	if session.IsNew && reqType != acsxml.InformReq {
-		log.Println("INVALID SESSION")
+		stdlog.Println("INVALID SESSION")
 		reqRes.SendResponse("")
 	}
 
 	acs.AddCookieToResponseWriter(reqRes.Session, reqRes.Response)
+
+	logConversation(&reqRes, log.FromDevice, buffer)
 
 	if session.Script != nil {
 		// A script is suspended waiting for the CPE's reply to a blocking RPC
@@ -57,7 +61,7 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		// per-type switch below.
 		finished, err := scripts.Resume(&reqRes)
 		if err != nil {
-			log.Println("script resume error:", err)
+			stdlog.Println("script resume error:", err)
 		}
 		if !finished {
 			return
@@ -72,11 +76,11 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		informDecision.CpeInformRequestParser()
 
 		if err := NewProvisionMatcher(&reqRes).QueueTasks(reqRes.Session.CurrentEventCodes, acsxml.InformReq); err != nil {
-			log.Println("provision matcher error (Inform):", err)
+			stdlog.Println("provision matcher error (Inform):", err)
 		}
 
 	case acsxml.EMPTY:
-		log.Println("EMPTY RESPONSE")
+		stdlog.Println("EMPTY RESPONSE")
 		if len(session.Tasks) == 0 {
 			acs.DeleteSession(session.Id)
 		}
@@ -90,21 +94,21 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		parameterDecisions.GetParameterValuesResponseParser()
 
 	case acsxml.AddObjResp:
-		log.Println("AddObjResp")
-		log.Println(string(reqRes.Body))
+		stdlog.Println("AddObjResp")
+		stdlog.Println(string(reqRes.Body))
 		parameterDecisions := methods.ParameterDecisions{ReqRes: &reqRes}
 		parameterDecisions.AddObjectResponseParser()
 
 	case acsxml.DownloadResp:
-		log.Println("DownloadResponse")
-		log.Println(string(reqRes.Body))
+		stdlog.Println("DownloadResponse")
+		stdlog.Println(string(reqRes.Body))
 
 	case acsxml.RebootResp:
-		log.Println("RebootResponse")
+		stdlog.Println("RebootResponse")
 
 	case acsxml.TransferComplete:
-		log.Println("TransferComplete")
-		log.Println(string(reqRes.Body))
+		stdlog.Println("TransferComplete")
+		stdlog.Println(string(reqRes.Body))
 		reqRes.SendResponse(reqRes.Envelope.TransferCompleteResponse())
 		return
 
@@ -125,8 +129,31 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 	NewTaskRunner(&reqRes, reqType).Run()
 }
 
+// logConversation persists the raw CWMP XML exchange when enabled (globally via
+// the "conversation_log" setting, or per-device via cpe.debug) - port of
+// goacs-php's Log::logConversation gate. Silently returns on any repository
+// error since this is a debugging aid, never allowed to break the CWMP flow.
+func logConversation(reqRes *acshttp.CPERequest, from string, body []byte) {
+	if !repository.HasConnection() {
+		return
+	}
+
+	logRepository := mysql.NewLogRepository(repository.GetConnection())
+	if !logRepository.ConversationLoggingEnabled(&reqRes.Session.CPE) {
+		return
+	}
+
+	_ = logRepository.Save(&log.Log{
+		CPEUUID:   reqRes.Session.CPE.UUID,
+		FullXML:   string(body),
+		Type:      log.TypeInfo,
+		From:      from,
+		SessionId: reqRes.Session.Id,
+	})
+}
+
 func parseBody(buffer []byte) (string, acsxml.Envelope) {
-	log.Println("Parsing body")
+	stdlog.Println("Parsing body")
 	var envelope acsxml.Envelope
 	err := xml.Unmarshal(buffer, &envelope)
 
@@ -157,6 +184,6 @@ func parseBody(buffer []byte) (string, acsxml.Envelope) {
 			requestType = acsxml.UNKNOWN
 		}
 	}
-	log.Println("body parsed")
+	stdlog.Println("body parsed")
 	return requestType, envelope
 }

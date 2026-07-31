@@ -35,7 +35,8 @@ func JWTAuthMiddleware(secret string) gin.HandlerFunc {
 		// useful if you use multiple keys for your application.  The standard is to use 'kid' in the
 		// head of the token to identify which key to use, but the parsed token (head and claims) is provided
 		// to the callback, providing flexibility.
-		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+		claims := &jwt.StandardClaims{}
+		token, err := jwt.ParseWithClaims(parts[1], claims, func(token *jwt.Token) (interface{}, error) {
 			// Don't forget to validate the alg is what you expect:
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("Unexpected signing me thod: %v", token.Header["alg"])
@@ -44,11 +45,15 @@ func JWTAuthMiddleware(secret string) gin.HandlerFunc {
 			return []byte(secret), nil
 		})
 
-		if token.Valid {
-			c.Next()
-		} else {
+		// jwt.ParseWithClaims can return a nil token alongside a non-nil
+		// error (e.g. malformed base64) - token.Valid would panic on that
+		// nil pointer, so err must be checked first.
+		if err != nil || token == nil || !token.Valid {
 			c.AbortWithError(401, err)
 			return
 		}
+
+		c.Set("user_uuid", claims.Subject)
+		c.Next()
 	}
 }

@@ -49,11 +49,61 @@ func (r *CPERepository) Count() (cpe_count int64) {
 	return cpe_count
 }
 
+var cpeSortableColumns = map[string]bool{
+	"serial_number":    true,
+	"oui":              true,
+	"software_version": true,
+	"hardware_version": true,
+	"ip_address":       true,
+	"created_at":       true,
+	"updated_at":       true,
+}
+
+var cpeFilterableColumns = cpeSortableColumns
+
+var cpeParameterSortableColumns = map[string]bool{
+	"name":       true,
+	"value":      true,
+	"type":       true,
+	"flags":      true,
+	"created_at": true,
+	"updated_at": true,
+}
+
 func (r *CPERepository) List(request repository.PaginatorRequest) ([]cpe.CPE, int) {
+	dialect := goqu.Dialect("mysql")
+	baseBuilder := dialect.From("cpe")
+
+	for key, value := range request.Filter {
+		if !cpeFilterableColumns[key] {
+			continue
+		}
+		baseBuilder = baseBuilder.Where(goqu.Ex{key: goqu.Op{"ilike": "%" + value + "%"}})
+	}
+
 	var total int
+	totalSql, _, _ := baseBuilder.Select(goqu.COUNT("*")).ToSQL()
+	_ = r.db.Get(&total, totalSql)
+
+	listBuilder := baseBuilder.Select("*").
+		Offset(uint(request.CalcOffset())).
+		Limit(uint(request.PerPage))
+
+	for _, sortColumn := range request.SortColumns() {
+		if !cpeSortableColumns[sortColumn.Column] {
+			continue
+		}
+		if sortColumn.Descending {
+			listBuilder = listBuilder.OrderAppend(goqu.C(sortColumn.Column).Desc())
+		} else {
+			listBuilder = listBuilder.OrderAppend(goqu.C(sortColumn.Column).Asc())
+		}
+	}
+
+	listSql, _, _ := listBuilder.ToSQL()
+
 	var cpes = make([]cpe.CPE, 0)
-	_ = r.db.Get(&total, "SELECT count(*) FROM cpe")
-	err := r.db.Unsafe().Select(&cpes, "SELECT * FROM cpe LIMIT ?,?", request.CalcOffset(), request.PerPage)
+	err := r.db.Unsafe().Select(&cpes, listSql)
 
 	if err != nil {
 		fmt.Println("Error while fetching query results")
@@ -183,6 +233,37 @@ func (r *CPERepository) UpdateOrCreate(cpe *cpe.CPE) (result bool, cpeExist bool
 	}
 
 	return
+}
+
+func (r *CPERepository) SetDebugForAll(value bool) error {
+	dialect := goqu.Dialect("mysql")
+	query, args, _ := dialect.Update("cpe").Prepared(true).
+		Set(goqu.Record{"debug": value}).
+		ToSQL()
+
+	_, err := r.db.Exec(query, args...)
+	return err
+}
+
+func (r *CPERepository) SetDebugForUUIDs(uuids []string, value bool) error {
+	if len(uuids) == 0 {
+		return nil
+	}
+
+	dialect := goqu.Dialect("mysql")
+	query, args, _ := dialect.Update("cpe").Prepared(true).
+		Set(goqu.Record{"debug": value}).
+		Where(goqu.C("uuid").In(uuids)).
+		ToSQL()
+
+	_, err := r.db.Exec(query, args...)
+	return err
+}
+
+func (r *CPERepository) ListDebugEnabled() []cpe.CPE {
+	var cpes = make([]cpe.CPE, 0)
+	_ = r.db.Unsafe().Select(&cpes, "SELECT * FROM cpe WHERE debug=true")
+	return cpes
 }
 
 func (r *CPERepository) FindParameter(cpe *cpe.CPE, parameterKey string) (*types.ParameterValueStruct, error) {
@@ -393,6 +474,17 @@ func (r *CPERepository) ListCPEParameters(cpe *cpe.CPE, request repository.Pagin
 	parametersBuilder := baseBulder.
 		Offset(uint(request.CalcOffset())).
 		Limit(uint(request.PerPage))
+
+	for _, sortColumn := range request.SortColumns() {
+		if !cpeParameterSortableColumns[sortColumn.Column] {
+			continue
+		}
+		if sortColumn.Descending {
+			parametersBuilder = parametersBuilder.OrderAppend(goqu.C(sortColumn.Column).Desc())
+		} else {
+			parametersBuilder = parametersBuilder.OrderAppend(goqu.C(sortColumn.Column).Asc())
+		}
+	}
 
 	log.Println(request.Filter)
 

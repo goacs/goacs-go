@@ -1,0 +1,156 @@
+<script setup lang="ts">
+import { reactive, watch } from 'vue'
+import InputText from 'primevue/inputtext'
+import Button from 'primevue/button'
+import Message from 'primevue/message'
+import EventSelect from '@/components/selects/EventSelect.vue'
+import RequestSelect from '@/components/selects/RequestSelect.vue'
+import RuleItem from '@/components/rules/RuleItem.vue'
+import ScriptListEditor from '@/components/rules/ScriptListEditor.vue'
+import type { Provision, ProvisionRule, ProvisionStoreRequest } from '@/api/types/configuration'
+import { useApiErrors } from '@/composables/useApiErrors'
+
+const props = defineProps<{ initial?: Provision | null; saving?: boolean }>()
+const emit = defineEmits<{ submit: [ProvisionStoreRequest] }>()
+
+const { fieldErrors, generalError, run } = useApiErrors()
+
+const form = reactive<ProvisionStoreRequest>({
+  name: '',
+  events: '',
+  requests: '',
+  script: [],
+  rules: [],
+})
+
+const eventsList = reactive<{ value: string[] }>({ value: [] })
+const requestsList = reactive<{ value: string[] }>({ value: [] })
+
+function applyInitial(provision: Provision | null | undefined) {
+  form.name = provision?.name ?? ''
+  form.script = provision?.script ? [...provision.script] : []
+  form.rules = provision?.rules ? provision.rules.map((r) => ({ ...r })) : []
+  eventsList.value = provision?.events ? provision.events.split(',').filter(Boolean) : []
+  requestsList.value = provision?.requests ? provision.requests.split(',').filter(Boolean) : []
+}
+
+watch(() => props.initial, applyInitial, { immediate: true })
+
+function addRule() {
+  form.rules.push({ parameter: '', operator: '==', value: '' } as ProvisionRule)
+}
+
+function removeRule(index: number) {
+  form.rules.splice(index, 1)
+}
+
+async function submitForm() {
+  const payload: ProvisionStoreRequest = {
+    ...form,
+    events: eventsList.value.join(','),
+    requests: requestsList.value.join(','),
+  }
+
+  const result = await run(async () => payload)
+  if (result) emit('submit', result)
+}
+</script>
+
+<template>
+  <form class="config-form" @submit.prevent="submitForm">
+    <Message v-if="generalError" severity="error" :closable="false">{{ generalError }}</Message>
+
+    <div class="field">
+      <label>Name</label>
+      <InputText v-model="form.name" fluid />
+      <small v-if="fieldErrors.name" class="error">{{ fieldErrors.name }}</small>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Trigger events</label>
+        <EventSelect v-model="eventsList.value" />
+      </div>
+      <div class="field">
+        <label>Trigger requests</label>
+        <RequestSelect v-model="requestsList.value" />
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Conditions</h3>
+        <Button label="Add rule" icon="pi pi-plus" text size="small" @click="addRule" />
+      </div>
+      <RuleItem
+        v-for="(rule, index) in form.rules"
+        :key="index"
+        :index="index"
+        :model-value="rule"
+        @update:model-value="(v) => (form.rules[index] = v)"
+        @remove="removeRule(index)"
+      />
+      <p v-if="form.rules.length === 0" class="hint">No conditions - this provision always applies.</p>
+    </div>
+
+    <div class="section">
+      <h3>Scripts</h3>
+      <ScriptListEditor v-model="form.script" />
+    </div>
+
+    <div class="actions">
+      <slot name="extra-actions" />
+      <Button type="submit" label="Save" :loading="saving" />
+    </div>
+  </form>
+</template>
+
+<style scoped>
+.config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 46rem;
+}
+
+.field,
+.field-row > .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.field-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.field-row > .field {
+  flex: 1;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+h3 {
+  margin: 0 0 0.5rem;
+}
+
+.hint {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.error {
+  color: var(--p-red-500, #ef4444);
+}
+</style>

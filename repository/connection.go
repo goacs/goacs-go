@@ -40,3 +40,11 @@ func InitConnection() *sqlx.DB {
 func GetConnection() *sqlx.DB {
 	return connection.Unsafe()
 }
+
+// HasConnection reports whether InitConnection has run - callers on hot paths
+// that are also exercised by unit tests without a database (e.g. the CWMP
+// conversation logger) should check this before calling GetConnection, which
+// panics on a nil underlying connection.
+func HasConnection() bool {
+	return connection != nil
+}

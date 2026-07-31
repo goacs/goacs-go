@@ -20,6 +20,7 @@ type CPE struct {
 	ConnectionRequestUser     string          `json:"connection_request_user" db:"connection_request_user"`
 	ConnectionRequestPassword string          `json:"connection_request_password" db:"connection_request_password"`
 	ConnectionRequestUrl      string          `json:"connection_request_url" db:"connection_request_url"`
+	Debug                     bool            `json:"debug" db:"debug"`
 	Root                      string
 	ParametersInfo            []types.ParameterInfo
 	ParameterValues           []types.ParameterValueStruct

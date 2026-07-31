@@ -4,12 +4,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"math"
 	"strconv"
+	"strings"
 )
 
 type PaginatorRequest struct {
 	Page    int               `json:"page"`
 	PerPage int               `json:"per_page"`
 	Filter  map[string]string `json:"filter"`
+	Sort    map[string]string `json:"sort"`
 }
 
 type PaginatorResponse struct {
@@ -41,12 +43,33 @@ func PaginatorRequestFromContext(ctx *gin.Context) PaginatorRequest {
 	perPage, _ := strconv.Atoi(qPerPage)
 
 	filter := ctx.QueryMap("filter")
+	sort := ctx.QueryMap("sort")
 
 	return PaginatorRequest{
 		Page:    page,
 		PerPage: perPage,
 		Filter:  filter,
+		Sort:    sort,
 	}
+}
+
+// SortOrExpressions returns the requested sort as goqu OrderedExpressions,
+// e.g. sort[serial_number]=asc -> [goqu.C("serial_number").Asc()].
+// Unrecognised directions default to ascending. Callers should validate
+// column names against an allow-list before use to avoid sorting by
+// arbitrary/unindexed columns.
+func (p *PaginatorRequest) SortColumns() []SortColumn {
+	columns := make([]SortColumn, 0, len(p.Sort))
+	for column, direction := range p.Sort {
+		columns = append(columns, SortColumn{Column: column, Descending: strings.EqualFold(direction, "desc")})
+	}
+
+	return columns
+}
+
+type SortColumn struct {
+	Column     string
+	Descending bool
 }
 
 func NewPaginatorResponse(request PaginatorRequest, total int, data interface{}) PaginatorResponse {
