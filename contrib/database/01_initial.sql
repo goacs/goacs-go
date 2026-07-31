@@ -116,21 +116,10 @@ create index tasks_for_index
     on tasks (for_name, for_id);
 
 
+-- Rewritten for the Lua scripting engine (was Anko syntax - SetParameter/GetParameterValue/
+-- SubString/Replace globals no longer exist; see acs/scripts/functions.go for the current API).
 INSERT INTO goacs.tasks (for_name, for_id, event, not_before, task, payload, infinite, created_at, done_at) VALUES ('global', 'new', 'GetParameterValuesResponse', '2021-01-03 20:06:32', 'RunScript',
- '{"script":"MAC = GetParameterValue(\"InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress\")
-       MAC4 = SubString(Replace(MAC,\":\",\"\"), 8, 12)
-       SSID = \"Multiplay_\" + MAC4
-       if ParameterExist(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.EnableSSIDPrefix\") == true {
-       SetParameter(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.EnableSSIDPrefix\", \"0\",\"RWS\")
-       }
-       if ParameterExist(\"InternetGatewayDevice.DeviceInfo.X_ZTE-COM_AdminAccount.Password\") == true {
-       SetParameter(\"InternetGatewayDevice.DeviceInfo.X_ZTE-COM_AdminAccount.Password\", \"CHANGEME\", \"RWS\")
-       }
-       SetParameter(\"InternetGatewayDevice.ManagementServer.Password\", \"XD\"+device.SerialNumber , \"RWS\")
-       SetParameter(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID\", SSID, \"RWS\")
-
-       SetParameter(\"InternetGatewayDevice.ManagementServer.PeriodicInformInterval\", \"600\", \"RWS\")
-       SaveDevice()"}
+ '{"script":"local mac = getParameterValue(\"InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1.MACAddress\")\nlocal mac4 = string.sub((mac:gsub(\":\", \"\")), 9, 12)\nlocal ssid = \"Multiplay_\" .. mac4\n\nif parameterExist(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.EnableSSIDPrefix\") then\n  setParameter(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.EnableSSIDPrefix\", \"0\", \"RWS\")\nend\n\nif parameterExist(\"InternetGatewayDevice.DeviceInfo.X_ZTE-COM_AdminAccount.Password\") then\n  setParameter(\"InternetGatewayDevice.DeviceInfo.X_ZTE-COM_AdminAccount.Password\", \"CHANGEME\", \"RWS\")\nend\n\nsetParameter(\"InternetGatewayDevice.ManagementServer.Password\", \"XD\" .. device.serialNumber, \"RWS\")\nsetParameter(\"InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID\", ssid, \"RWS\")\nsetParameter(\"InternetGatewayDevice.ManagementServer.PeriodicInformInterval\", \"600\", \"RWS\")\nsaveDevice()"}
        ', 1, '2021-01-03 20:06:32', null);
 
 create table config
