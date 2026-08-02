@@ -76,8 +76,10 @@ func TestProvisionNowForcesFullWalk(t *testing.T) {
 
 	_, profile, profilesDir, serial := scopedRule(t)
 
-	// Session A: bootstrap registers the CPE (this session naturally does a
-	// full walk on its own, since it's a brand new device).
+	// Session A: bootstrap registers the CPE. Since it's a brand new device, this
+	// session runs the seeded "init" Provision (contrib/database/06_init_provision.sql)
+	// instead of a full walk - it does not, on its own, produce a
+	// "<cwmp:GetParameterNames" wire log entry.
 	runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
 	cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
 

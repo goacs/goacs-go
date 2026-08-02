@@ -550,6 +550,16 @@ setParameter(device.root .. ".ManagementServer.ParameterKey", vals[device.root .
 	t.Run("setParameterValues_success", func(t *testing.T) {
 		rule, profile, profilesDir, serial := scopedRule(t)
 		warmUpDevice(t, srv, profile, profilesDir, serial)
+		cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
+
+		// setParameterValues' confirmation write is a plain SQL UPDATE with
+		// no insert fallback (repository/mysql/cperepository.go
+		// UpdateParameter) - seed a baseline row for this LANDevice.* path
+		// since bootstrap no longer walks it automatically (see
+		// templates_test.go's templateTargetPath tests for the same
+		// pattern).
+		client.PutDeviceParameter(t, cpe.UUID, "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID", "GoACS-Sim", harness.FlagRWS)
+
 		mustCreateProvision(t, client, harness.Provision{
 			Name:     "bpspv_" + serial,
 			Events:   "2 PERIODIC",
@@ -562,7 +572,6 @@ setParameter(device.root .. ".ManagementServer.ParameterKey", "status:" .. tostr
 		})
 
 		runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "2 PERIODIC"})
-		cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
 
 		ssid, ok := client.FindDeviceParameter(t, cpe.UUID, "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID")
 		if !ok || ssid.ValueStruct.Value != "scenario-ssid" {

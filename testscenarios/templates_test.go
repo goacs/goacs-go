@@ -48,6 +48,15 @@ func TestTemplates(t *testing.T) {
 		runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
 		cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
 
+		// Bootstrap alone no longer reports this LANDevice.* path into
+		// cpe_parameters (acs/methods/informmethods.go only auto-walks
+		// already-known devices now; a new device instead runs the much
+		// narrower seeded "init" provision - see
+		// contrib/database/06_init_provision.sql), so seed the CPE's real
+		// reported default directly, matching what the old full walk would
+		// have captured.
+		client.PutDeviceParameter(t, cpe.UUID, templateTargetPath, "6", harness.Flag{Read: true, Write: true})
+
 		tpl := client.CreateAndFindTemplate(t, "tpl_alone_"+serial)
 		client.StoreTemplateParameter(t, tpl.Id, templateTargetPath, "should-never-appear", harness.FlagRWS)
 		client.AssignTemplateToDevice(t, cpe.UUID, tpl.Id, 150)
@@ -101,6 +110,11 @@ func TestTemplates(t *testing.T) {
 		runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
 		cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
 
+		// See the comment in "template_alone_without_a_matching_provision_never_pushes":
+		// this LANDevice.* path needs a seeded baseline row since bootstrap no
+		// longer walks it automatically.
+		client.PutDeviceParameter(t, cpe.UUID, templateTargetPath, "6", harness.Flag{Read: true, Write: true})
+
 		low := client.CreateAndFindTemplate(t, "tpl_low_"+serial)
 		client.StoreTemplateParameter(t, low.Id, templateTargetPath, "low-priority-value", harness.FlagRWS)
 		client.AssignTemplateToDevice(t, cpe.UUID, low.Id, 50)
@@ -122,6 +136,11 @@ func TestTemplates(t *testing.T) {
 		rule, profile, profilesDir, serial := scopedRule(t)
 		runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
 		cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
+
+		// See the comment in "template_alone_without_a_matching_provision_never_pushes":
+		// this LANDevice.* path needs a seeded baseline row since bootstrap no
+		// longer walks it automatically.
+		client.PutDeviceParameter(t, cpe.UUID, templateTargetPath, "6", harness.Flag{Read: true, Write: true})
 
 		tpl := client.CreateAndFindTemplate(t, "tpl_readonly_"+serial)
 		client.StoreTemplateParameter(t, tpl.Id, templateTargetPath, "should-not-apply", harness.Flag{Read: true})

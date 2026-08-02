@@ -38,7 +38,9 @@ func (pd *ParameterDecisions) CpeParameterNamesResponseParser() {
 	pd.ReqRes.Session.GPNCount--
 
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
+	if !pd.ReqRes.Session.LookupOnly {
+		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
+	}
 
 	nextLevelParams := pd.GetNextLevelParams(pd.ReqRes.Session.CPE.ParametersInfo)
 
@@ -147,7 +149,11 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 	}
 
 	//log.Println(pd.CPERequest.Session.CPE.ParameterValues)
-	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
+	if pd.ReqRes.Session.LookupOnly {
+		// Read-only: the snapshot above already covers what "lookup" is for -
+		// no cpe_parameters write, no AddObj/DelObj diffing/mutation of the
+		// device below.
+	} else if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
 		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
 	} else if pd.ReqRes.Session.IsBoot {
 		if pd.ReqRes.Session.HasTaskOfType(acsxml.GPVReq) == false {

@@ -25,13 +25,25 @@ const (
 )
 
 type ACSSession struct {
-	Id                          string
-	IsNew                       bool
-	IsNewInACS                  bool
-	IsBoot                      bool
-	IsBootstrap                 bool
-	Provision                   bool
-	ReadAllParameters           bool
+	Id                string
+	IsNew             bool
+	IsNewInACS        bool
+	IsBoot            bool
+	IsBootstrap       bool
+	Provision         bool
+	ReadAllParameters bool
+
+	// LookupOnly is true when GET /api/device/:uuid/lookup armed the one-shot
+	// LookupParamsEnabledPrefix cache flag before kicking this device
+	// (acs/methods/informmethods.go). It forces the same full
+	// GetParameterNames/GetParameterValues walk IsBoot does, but every write
+	// that walk would otherwise make to cpe_parameters (parameter names in
+	// ParameterDecisions.CpeParameterNamesResponseParser, object-instance
+	// AddObj/DelObj diffing in GetParameterValuesResponseParser) is skipped -
+	// the results only ever reach the LookupParamsPrefix cache entry, never
+	// the database, so a read-only "lookup" never has side effects on the
+	// device or its stored parameters.
+	LookupOnly                  bool
 	CurrentState                string
 	PrevState                   string
 	CreatedAt                   time.Time

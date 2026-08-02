@@ -142,13 +142,6 @@ func (tr *TaskRunner) loadDeviceTasks() {
 	tasksRepository := mysql.NewTasksRepository(tr.reqRes.DBConnection)
 	cpeDatabaseTasks := tasksRepository.GetTasksForCPE(tr.reqRes.Session.CPE.UUID)
 
-	if tr.reqRes.Session.IsNewInACS && tr.event == acsxml.GPVResp {
-		newDeviceTask := tasksRepository.GetGlobalTask("new")
-		if !tr.reqRes.Session.TaskExist(newDeviceTask) {
-			tr.reqRes.Session.AddTask(newDeviceTask)
-		}
-	}
-
 	filteredTasks := tasks.FilterTasksByEvent(tr.event, cpeDatabaseTasks)
 	for _, cpeTask := range filteredTasks {
 		if !tr.reqRes.Session.TaskExist(cpeTask) {

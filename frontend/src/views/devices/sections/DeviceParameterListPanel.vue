@@ -78,6 +78,16 @@ onMounted(() => table.load())
       <Column header="Flags">
         <template #body="{ data }"><Tag :value="flagToString(data.flag)" severity="secondary" /></template>
       </Column>
+      <Column header="Cached value">
+        <template #body="{ data }">
+          <span v-if="data.cached_value == null">—</span>
+          <Tag
+            v-else
+            :value="data.cached_value"
+            :severity="data.cached_value === data.valuestruct.value ? 'success' : 'warning'"
+          />
+        </template>
+      </Column>
       <Column header="">
         <template #body="{ data }">
           <Button icon="pi pi-pencil" text size="small" @click="openEdit(data)" />

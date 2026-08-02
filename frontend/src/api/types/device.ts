@@ -29,6 +29,12 @@ export interface Parameter {
   name: string
   valuestruct: ValueStruct
   flag: Flag
+  // Only populated by GetDeviceParameters (the main parameter list): the
+  // value most recently read from the device via "lookup now", when this
+  // parameter name is still present in that cache snapshot - lets the UI
+  // compare it against valuestruct.value (what's stored in cpe_parameters).
+  // Absent/null when never looked up or the snapshot has expired.
+  cached_value?: string | null
 }
 
 // Mirrors Go's acs/types.IPAddress (a net.IPAddr wrapper) - marshals as

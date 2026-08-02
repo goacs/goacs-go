@@ -46,12 +46,32 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 		InformDecision.ReqRes.Session.IsBoot = true
 	}
 
+	// GET /api/device/:uuid/lookup armed this flag before kicking the device:
+	// also force the full walk below, but in a read-only mode - see
+	// Session.LookupOnly and the guards in acs/methods/parametermethods.go -
+	// so the results only ever reach the LookupParamsPrefix cache, never
+	// cpe_parameters.
+	if _, lookup := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, InformDecision.ReqRes.Session.CPE.SerialNumber)); lookup {
+		InformDecision.ReqRes.Session.LookupOnly = true
+	}
+
 	_, _ = cpeRepository.SaveParameters(&InformDecision.ReqRes.Session.CPE)
 	task := tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)
 	task.Task = acsxml.InformResp
 	InformDecision.ReqRes.Session.AddTask(task)
 
-	if InformDecision.ReqRes.Session.IsNewInACS || InformDecision.ReqRes.Session.IsBoot {
+	// Brand-new devices (IsNewInACS) deliberately do NOT trigger this walk anymore -
+	// their parameters are read via the curated "init" Provision instead (see
+	// contrib/database/06_init_provision.sql and acs/scripts/README.md), which uses
+	// the Lua sandbox's blocking getParameterValues() to fetch just DeviceInfo. and
+	// ManagementServer. in one round-trip instead of walking the entire device
+	// model one leaf at a time. Already-known devices rebooting (a real IsBoot from
+	// "0 BOOTSTRAP"/"1 BOOT"), forced via the admin "provision now" action
+	// (GET /api/device/:uuid/provision), or forced via the admin "lookup now"
+	// action (GET /api/device/:uuid/lookup, Session.LookupOnly), keep this full
+	// walk unchanged - LookupOnly's walk just runs in a read-only mode, see the
+	// guards in acs/methods/parametermethods.go.
+	if (InformDecision.ReqRes.Session.IsBoot && !InformDecision.ReqRes.Session.IsNewInACS) || InformDecision.ReqRes.Session.LookupOnly {
 		//InformDecision.ReqRes.Session.RunGPV = true
 		InformDecision.ReqRes.Session.CurrentState = acsxml.GPNReq
 		task = tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)

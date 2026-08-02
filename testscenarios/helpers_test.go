@@ -86,21 +86,21 @@ func outputSince(srv *harness.Server, mark int) string {
 
 // warmUpDevice runs a plain bootstrap session for a brand-new device. Any
 // provision that should NOT fire during this warm-up must be scoped to a
-// different event (e.g. Events: "2 PERIODIC") than "0 BOOTSTRAP".
+// different event (e.g. Events: "2 PERIODIC") than "0 BOOTSTRAP"/"1 BOOT".
 //
-// This is required before asserting that setParameter/setParameterValues
-// persisted an ARBITRARY parameter (anything other than SoftwareVersion/
-// HardwareVersion/ConnectionRequestURL): both write through a plain SQL
-// UPDATE with no insert fallback (repository/mysql/cperepository.go
-// UpdateParameter, called from both acs/scripts/functions.go and
-// acs/scripts/bridge.go), so a write to a parameter name with no existing
-// cpe_parameters row is a silent no-op - and whether that row exists yet
-// partway through a brand-new device's own first-session parameter walk
-// turns out not to be deterministic. Running an uncontested warm-up first
-// lets that walk finish and create every leaf row; the actual test then
-// happens on an already-known device (a non-boot event triggers no walk at
-// all - acs/methods/informmethods.go - so nothing else touches
-// cpe_parameters while the test script runs).
+// The seeded "init" provision (contrib/database/06_init_provision.sql) makes
+// this session populate DeviceInfo.*/ManagementServer.* in cpe_parameters via
+// a blocking getParameterValues() + saveDevice() - see
+// acs/methods/informmethods.go, which no longer auto-walks brand-new devices
+// itself. That covers most of what setParameter/setParameterValues tests
+// need before asserting a persisted write (both are a plain SQL UPDATE with
+// no insert fallback - repository/mysql/cperepository.go UpdateParameter,
+// called from acs/scripts/functions.go and acs/scripts/bridge.go - so a
+// write to a parameter name with no existing cpe_parameters row is a silent
+// no-op). A test that targets a parameter OUTSIDE DeviceInfo./
+// ManagementServer. (e.g. LANDevice./WLANConfiguration.) still needs to seed
+// that specific row itself first, e.g. via client.PutDeviceParameter - see
+// templates_test.go's templateTargetPath tests for that pattern.
 func warmUpDevice(t *testing.T, srv *harness.Server, profile, profilesDir, serial string) {
 	t.Helper()
 	runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})

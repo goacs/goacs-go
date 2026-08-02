@@ -80,15 +80,59 @@ func DeleteDevice(ctx *gin.Context) {
 
 }
 
+// ParameterWithCachedValue augments a stored parameter with the value most
+// recently read from the device via "lookup now" (LookupParamsPrefix,
+// populated by acs/methods/parametermethods.go), when that snapshot still
+// exists and still contains this parameter's name - nil otherwise (never
+// looked up, or the snapshot already expired). Lets the admin panel compare
+// what's stored in cpe_parameters against what the device actually reports
+// right now. Response-only: never persisted, never used outside
+// GetDeviceParameters.
+type ParameterWithCachedValue struct {
+	types.ParameterValueStruct
+	CachedValue *string `json:"cached_value"`
+}
+
 func GetDeviceParameters(ctx *gin.Context) {
 	paginatorRequest := repository.PaginatorRequestFromContext(ctx)
 	cperepository := mysql.NewCPERepository(repository.GetConnection())
 	cpeModel, err := getCPEFromContext(ctx, cperepository)
 	if err == nil {
 		parameters, total := cperepository.ListCPEParameters(cpeModel, paginatorRequest)
-		responseData := repository.NewPaginatorResponse(paginatorRequest, total, parameters)
+		responseData := repository.NewPaginatorResponse(paginatorRequest, total, withCachedValue(cpeModel, parameters))
 		response.ResponsePaginatior(ctx, responseData)
 	}
+}
+
+// withCachedValue enriches each DB-stored parameter with the value from the
+// device's current "lookup now" cache snapshot, when that snapshot exists
+// and still contains the parameter's name. The DB rows themselves (and their
+// count/pagination) are untouched - a parameter that only exists in the
+// cache, never read into cpe_parameters, is never added here; see
+// GetDeviceCachedParameters for that.
+func withCachedValue(cpeModel *cpe.CPE, parameters []types.ParameterValueStruct) []ParameterWithCachedValue {
+	result := make([]ParameterWithCachedValue, len(parameters))
+	for i, p := range parameters {
+		result[i] = ParameterWithCachedValue{ParameterValueStruct: p}
+	}
+
+	cached, ok := cachedParametersFor(cpeModel)
+	if !ok {
+		return result
+	}
+
+	cachedValues := make(map[string]string, len(cached))
+	for _, p := range cached {
+		cachedValues[p.Name] = p.ValueStruct.Value
+	}
+
+	for i := range result {
+		if value, found := cachedValues[result[i].Name]; found {
+			result[i].CachedValue = &value
+		}
+	}
+
+	return result
 }
 
 func GetDeviceTemplates(ctx *gin.Context) {

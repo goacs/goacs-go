@@ -78,15 +78,12 @@ func TestProvisionMatching(t *testing.T) {
 		//
 		// Runs on an already-known device (warmUpDevice first, provisions
 		// attached after) rather than a brand-new one: a brand-new device's
-		// session also queues a one-shot global "new device" task
-		// (acs/logic/taskrunner.go loadDeviceTasks, gated on
-		// Session.IsNewInACS) on every GetParameterValuesResponse round-trip
-		// during its own parameter walk, and if that task has no configured
-		// type, TaskRunner.Run() reaches its untyped default branch and
-		// returns without recursing - ending the session before the queue
-		// is ever checked again, so runSetParamsProvisioningOnce never gets
-		// a chance to fire. An already-known device does no walk at all
-		// (IsNewInACS is false), sidestepping that entirely.
+		// first Inform also matches the seeded "init" Provision
+		// (contrib/database/06_init_provision.sql, events "0 BOOTSTRAP,1 BOOT"),
+		// whose script would add its own log() output and RunScript task to the
+		// same session, which this scenario doesn't want to have to account for.
+		// An already-known device's periodic Inform doesn't match "init"'s events,
+		// sidestepping that entirely.
 		rule, profile, profilesDir, serial := scopedRule(t)
 		warmUpDevice(t, srv, profile, profilesDir, serial)
 		mustCreateProvision(t, client, harness.Provision{
