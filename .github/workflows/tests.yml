@@ -1,0 +1,109 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        # acs/types/xmlstruct.go is a documented pre-existing exception, see AGENTS.md
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^acs/types/xmlstruct.go$' || true)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        # acs/types has two known pre-existing failures (TestParser,
+        # TestIsObjectParameter) unrelated to API/frontend work, see AGENTS.md
+        run: go test $(go list ./... | grep -v '/acs/types$')
+
+  frontend-checks:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npx vue-tsc -b --noEmit
+      - run: npm run build
+
+  scenario-tests:
+    name: Scenario tests (testscenarios/)
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.4
+        env:
+          MYSQL_ROOT_PASSWORD: s3cr3tpassw0rd
+          MYSQL_USER: goacs
+          MYSQL_PASSWORD: goacs
+          MYSQL_DATABASE: goacs
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      # goacs-client is checked out as a sibling directory of goacs-go,
+      # matching the layout testscenarios/harness/paths.go's
+      # ClientRepoRoot() looks for by default (overridable via
+      # GOACS_CLIENT_DIR) - see testscenarios/README.md.
+      - name: Checkout goacs-go
+        uses: actions/checkout@v4
+        with:
+          path: goacs-go
+
+      - name: Checkout goacs-client
+        uses: actions/checkout@v4
+        with:
+          repository: goacs/goacs-client
+          path: goacs-client
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: goacs-go/go.mod
+          cache-dependency-path: |
+            goacs-go/go.sum
+            goacs-client/go.sum
+
+      - name: Prepare .env
+        # .env.example's default MYSQL_HOST/MYSQL_PORT (localhost:3306) and
+        # credentials already match the mariadb service container above.
+        working-directory: goacs-go
+        run: cp .env.example .env
+
+      - name: Run scenario tests
+        working-directory: goacs-go
+        run: go test -tags scenario ./testscenarios/... -v
