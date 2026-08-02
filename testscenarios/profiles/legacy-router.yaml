@@ -1,0 +1,28 @@
+# TR-098 router variant with an old firmware version, used alongside
+# acme-router.yaml as the "does NOT match" side of provision rule scenarios
+# (vendor rule: different manufacturer; firmware rule: older version).
+name: legacy-router
+root: InternetGatewayDevice
+description: "GoACS Simulations router on old firmware for provision rule matching scenarios"
+device:
+  manufacturer: "GoACS Simulations"
+  oui: "001A2B"
+  product_class: "LegacyRouter"
+includes:
+  - tr098-router
+parameters:
+  - path: DeviceInfo.Manufacturer
+    value: "GoACS Simulations"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.ProductClass
+    value: "LegacyRouter"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.SoftwareVersion
+    # Kept parseable as a plain float (not "1.0.0") since
+    # acs/logic/provision.go's numericCompare uses strconv.ParseFloat for
+    # the >, >=, <, <= operators.
+    value: "1.0"
+    type: xsd:string
+    writable: false

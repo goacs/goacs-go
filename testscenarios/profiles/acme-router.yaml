@@ -1,0 +1,31 @@
+# TR-098 router variant with a distinct manufacturer/firmware, used by
+# provision_matching_test.go to exercise vendor/firmware rule conditions.
+name: acme-router
+root: InternetGatewayDevice
+description: "Acme Corp router (manufacturer + newer firmware) for provision rule matching scenarios"
+device:
+  manufacturer: "Acme Corp"
+  oui: "AC0001"
+  product_class: "AcmeRouter"
+includes:
+  - tr098-router
+parameters:
+  - path: DeviceInfo.Manufacturer
+    value: "Acme Corp"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.ManufacturerOUI
+    value: "AC0001"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.ProductClass
+    value: "AcmeRouter"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.SoftwareVersion
+    # Kept parseable as a plain float (not "2.5.0") since
+    # acs/logic/provision.go's numericCompare uses strconv.ParseFloat for
+    # the >, >=, <, <= operators.
+    value: "2.5"
+    type: xsd:string
+    writable: false

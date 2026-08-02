@@ -62,10 +62,18 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		finished, err := scripts.Resume(&reqRes)
 		if err != nil {
 			stdlog.Println("script resume error:", err)
+			scripts.LogScriptError(&reqRes, err)
 		}
 		if !finished {
 			return
 		}
+		// Mirrors taskrunner.go's runScriptTask: a script that finishes here
+		// (having used at least one blocking call) must still get the same
+		// template/stored-parameter diff-and-push pass as one that never
+		// blocked at all - otherwise a script whose only job is fetching a
+		// value via a blocking call could never trigger it.
+		parameterDecisions := methods.ParameterDecisions{ReqRes: &reqRes}
+		parameterDecisions.PrepareParametersToSend()
 		NewTaskRunner(&reqRes, reqType).Run()
 		return
 	}
@@ -92,6 +100,10 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 	case acsxml.GPVResp:
 		parameterDecisions := methods.ParameterDecisions{ReqRes: &reqRes}
 		parameterDecisions.GetParameterValuesResponseParser()
+
+	case acsxml.SPVResp:
+		parameterDecisions := methods.ParameterDecisions{ReqRes: &reqRes}
+		parameterDecisions.SetParameterValuesResponseParser()
 
 	case acsxml.AddObjResp:
 		stdlog.Println("AddObjResp")
@@ -171,6 +183,8 @@ func parseBody(buffer []byte) (string, acsxml.Envelope) {
 			requestType = acsxml.SPVResp
 		case "addobjectresponse":
 			requestType = acsxml.AddObjResp
+		case "deleteobjectresponse":
+			requestType = acsxml.DelObjResp
 		case "downloadresponse":
 			requestType = acsxml.DownloadResp
 		case "rebootresponse":

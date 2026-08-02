@@ -38,7 +38,13 @@ func (t GetParameterValuesTask) ToRequest(ctx *RunContext) (string, error) {
 type SetParameterValuesTask struct{ dbTaskAdapter }
 
 func (t SetParameterValuesTask) ToRequest(ctx *RunContext) (string, error) {
-	return ctx.ReqRes.Envelope.SetParameterValues(ctx.ReqRes.Session.PopParametersToAdd()), nil
+	params := ctx.ReqRes.Session.PopParametersToAdd()
+	// Remembered here since the response confirming these values arrives on
+	// a later round-trip, after ParametersToAdd has already been popped -
+	// see ParameterDecisions.SetParameterValuesResponseParser.
+	ctx.ReqRes.Session.PendingSetParameterValues = params
+	ctx.ReqRes.Session.PrevState = acsxml.SPVReq
+	return ctx.ReqRes.Envelope.SetParameterValues(params), nil
 }
 
 // AddObjectTask handles both operator-initiated AddObject (task type "AddObject",

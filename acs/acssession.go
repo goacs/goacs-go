@@ -47,6 +47,14 @@ type ACSSession struct {
 	ParametersToAdd             []types.ParameterValueStruct
 	ParametersToDelete          []types.ParameterValueStruct
 
+	// PendingSetParameterValues holds the parameters most recently sent in a
+	// SetParameterValues request (queue.SetParameterValuesTask.ToRequest pops
+	// them off ParametersToAdd to build that request, so they'd otherwise be
+	// lost by the time the CPE's response arrives on a later round-trip) -
+	// consumed by ParameterDecisions.SetParameterValuesResponseParser to
+	// persist the now-confirmed values.
+	PendingSetParameterValues []types.ParameterValueStruct
+
 	// CurrentEventCodes holds every CWMP event code from the Inform that started this
 	// session (e.g. "0 BOOTSTRAP", "1 BOOT", "2 PERIODIC"), used by the provisioning
 	// rule matcher - unlike IsBoot/IsBootstrap this preserves the full set rather than

@@ -46,7 +46,7 @@ async function save() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" header="Add task" modal style="width: 32rem">
+  <Dialog v-model:visible="visible" header="Add task" modal style="width: max(32rem, 50vw)">
     <div class="fields">
       <div class="field">
         <label>Task type</label>

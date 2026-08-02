@@ -38,7 +38,7 @@ async function save() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" :header="user ? 'Edit user' : 'New user'" modal style="width: 26rem">
+  <Dialog v-model:visible="visible" :header="user ? 'Edit user' : 'New user'" modal style="width: max(26rem, 50vw)">
     <div class="fields">
       <Message v-if="generalError" severity="error" :closable="false">{{ generalError }}</Message>
 

@@ -61,7 +61,7 @@ onMounted(() => table.load())
       <Column field="parameter_count" header="Parameters" />
     </DataTable>
 
-    <Dialog v-model:visible="dialogVisible" header="New template" modal style="width: 24rem">
+    <Dialog v-model:visible="dialogVisible" header="New template" modal style="width: max(24rem, 50vw)">
       <div class="field">
         <label>Name</label>
         <InputText v-model="newName" fluid autofocus @keyup.enter="createTemplate" />

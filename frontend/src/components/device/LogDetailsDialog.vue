@@ -13,7 +13,7 @@ const visible = defineModel<boolean>('visible', { required: true })
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" header="Log details" modal style="width: 42rem">
+  <Dialog v-model:visible="visible" header="Log details" modal style="width: max(42rem, 50vw)">
     <Tabs v-if="entry" value="xml">
       <TabList>
         <Tab value="xml">Raw XML</Tab>

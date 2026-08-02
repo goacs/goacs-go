@@ -21,19 +21,41 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
     <ProgressSpinner v-if="deviceStore.loading && !deviceStore.currentDevice" style="width: 3rem" />
 
     <div v-else-if="deviceStore.currentDevice" class="device-grid">
-      <DeviceInfoPanel :device="deviceStore.currentDevice" />
-      <DeviceQueuedTasksPanel :uuid="props.uuid" />
-      <DeviceTemplatesPanel :uuid="props.uuid" />
-      <DeviceLogsPanel :uuid="props.uuid" />
-      <DeviceParameterListPanel :uuid="props.uuid" />
+      <div class="device-grid__left">
+        <DeviceInfoPanel :device="deviceStore.currentDevice" />
+      </div>
+      <div class="device-grid__right">
+        <DeviceQueuedTasksPanel :uuid="props.uuid" />
+        <DeviceTemplatesPanel :uuid="props.uuid" />
+        <DeviceLogsPanel :uuid="props.uuid" />
+      </div>
+      <DeviceParameterListPanel :uuid="props.uuid" class="device-grid__full" />
     </div>
   </div>
 </template>
 
 <style scoped>
 .device-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+.device-grid__left,
+.device-grid__right {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  min-width: 0;
+}
+
+@media (min-width: 1200px) {
+  .device-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .device-grid__full {
+    grid-column: 1 / -1;
+  }
 }
 </style>

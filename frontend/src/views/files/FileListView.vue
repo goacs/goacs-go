@@ -98,7 +98,7 @@ onMounted(load)
       <template #empty>No files uploaded yet.</template>
     </DataTable>
 
-    <Dialog v-model:visible="uploadDialogVisible" header="Upload firmware image" modal style="width: 28rem">
+    <Dialog v-model:visible="uploadDialogVisible" header="Upload firmware image" modal style="width: max(28rem, 50vw)">
       <FileUpload
         mode="basic"
         :auto="false"

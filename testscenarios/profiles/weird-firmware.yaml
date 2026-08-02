@@ -1,0 +1,21 @@
+# TR-098 router reporting a non-numeric SoftwareVersion, used to confirm
+# numericCompare's "parse failure -> false" behavior (acs/logic/provision.go)
+# rather than a matcher crash when a >=/>/<=/< rule meets an unparsable value.
+name: weird-firmware
+root: InternetGatewayDevice
+description: "Router reporting a non-numeric firmware string, for numeric-operator edge case scenarios"
+device:
+  manufacturer: "GoACS Simulations"
+  oui: "001A2B"
+  product_class: "WeirdFirmwareRouter"
+includes:
+  - tr098-router
+parameters:
+  - path: DeviceInfo.ProductClass
+    value: "WeirdFirmwareRouter"
+    type: xsd:string
+    writable: false
+  - path: DeviceInfo.SoftwareVersion
+    value: "v2-beta"
+    type: xsd:string
+    writable: false

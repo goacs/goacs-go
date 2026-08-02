@@ -45,7 +45,7 @@ async function save() {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" header="Assign template" modal style="width: 26rem">
+  <Dialog v-model:visible="visible" header="Assign template" modal style="width: max(26rem, 50vw)">
     <div class="fields">
       <div class="field">
         <label>Template</label>

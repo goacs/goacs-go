@@ -3,8 +3,11 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { php } from '@codemirror/lang-php'
+import { StreamLanguage } from '@codemirror/language'
+import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { oneDark } from '@codemirror/theme-one-dark'
+
+const luaLanguage = StreamLanguage.define(lua)
 
 const value = defineModel<string>({ required: true })
 const container = ref<HTMLDivElement>()
@@ -21,7 +24,7 @@ onMounted(() => {
         lineNumbers(),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
-        php(),
+        luaLanguage,
         oneDark,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) value.value = update.state.doc.toString()

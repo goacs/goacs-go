@@ -110,7 +110,7 @@ async function submitForm() {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  max-width: 46rem;
+  max-width: max(46rem, 50vw);
 }
 
 .field,

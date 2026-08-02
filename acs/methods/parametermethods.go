@@ -190,6 +190,30 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 
 }
 
+// SetParameterValuesResponseParser handles the CPE's reply to a
+// SetParameterValues request built from a SetParameterValuesTask (queue.go) -
+// whether that task came from PrepareParametersToSend's template/stored-
+// parameter diff, or an operator-queued task. A Fault response never reaches
+// here (acs/logic/dispatcher.go routes acsxml.FaultResp to FaultDecision
+// instead), so arriving here means the CPE accepted the values: they're
+// persisted into cpe_parameters, confirming what was only provisionally
+// queued in Session.PendingSetParameterValues.
+func (pd *ParameterDecisions) SetParameterValuesResponseParser() {
+	var spvr acsxml.SetParameterValuesResponseStruct
+	_ = xml.Unmarshal(pd.ReqRes.Body, &spvr)
+	log.Println("SetParameterValuesResponseParser, status", spvr.Status)
+
+	confirmed := pd.ReqRes.Session.PendingSetParameterValues
+	pd.ReqRes.Session.PendingSetParameterValues = nil
+	if len(confirmed) == 0 {
+		return
+	}
+
+	pd.ReqRes.Session.CPE.AddParameterValues(confirmed)
+	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, confirmed)
+}
+
 func (pd *ParameterDecisions) PrepareParametersToSend() {
 	pd.ReqRes.Session.PrevState = acsxml.SPVReq
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())

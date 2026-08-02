@@ -269,11 +269,10 @@ func (r *CPERepository) ListDebugEnabled() []cpe.CPE {
 func (r *CPERepository) FindParameter(cpe *cpe.CPE, parameterKey string) (*types.ParameterValueStruct, error) {
 	row := r.db.Unsafe().QueryRowx("SELECT *  FROM cpe_parameters WHERE cpe_uuid=? AND name=? LIMIT 1", cpe.UUID, parameterKey)
 
-	if row.Err() == sql.ErrNoRows {
+	parameterValueStruct, err := parameterRowParser(row)
+	if err != nil {
 		return nil, repository.ErrNotFound
 	}
-
-	parameterValueStruct := parameterRowParser(row)
 
 	return &parameterValueStruct, nil
 }
@@ -282,9 +281,8 @@ func (r *CPERepository) CreateParameter(cpe *cpe.CPE, parameter types.ParameterV
 	var query string = `INSERT INTO cpe_parameters (cpe_uuid, name, value, type, flags, created_at, updated_at) 
 						VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	stmt, _ := r.db.Prepare(query)
-
-	_, err := stmt.Exec(
+	_, err := r.db.Exec(
+		query,
 		cpe.UUID,
 		parameter.Name,
 		parameter.ValueStruct.Value,
@@ -363,11 +361,11 @@ func (r *CPERepository) UpdateOrCreateParameter(cpe *cpe.CPE, parameter types.Pa
 
 func (r *CPERepository) UpdateParameter(cpe *cpe.CPE, parameter types.ParameterValueStruct) (result bool, err error) {
 	query := "UPDATE cpe_parameters SET value=?, type=?, flags=?, updated_at=? WHERE cpe_uuid=? and name = ?"
-	stmt, _ := r.db.Prepare(query)
 
 	//log.Println("Parameter flags ", parameter.Flag.AsString())
 
-	_, err = stmt.Exec(
+	_, err = r.db.Exec(
+		query,
 		parameter.ValueStruct.Value,
 		parameter.ValueStruct.Type,
 		parameter.Flag.AsString(),
@@ -526,20 +524,34 @@ func (r *CPERepository) DeleteAllParameters(cpe *cpe.CPE) {
 	}
 }
 
-func parameterRowParser(row *sqlx.Row) types.ParameterValueStruct {
-	var parameter types.ParameterValueStruct
+// parameterRowParser scans a single cpe_parameters row. Unlike
+// parametersRowsParser (which iterates a *sqlx.Rows cursor, and can call
+// both StructScan and MapScan per row since Next() keeps the cursor open),
+// a *sqlx.Row from QueryRowx closes its underlying result set after its
+// first scan call - a second call always fails silently. So this reads via
+// MapScan only, and builds the struct entirely from that map (same
+// nested-ValueStruct workaround as the multi-row case, see AGENTS.md).
+func parameterRowParser(row *sqlx.Row) (types.ParameterValueStruct, error) {
 	mapScan := make(map[string]interface{})
-	_ = row.StructScan(&parameter)
-	_ = row.MapScan(mapScan)
-
-	if mapScan["value"] != nil {
-		parameter.ValueStruct.Value = string(mapScan["value"].([]byte))
+	if err := row.MapScan(mapScan); err != nil {
+		return types.ParameterValueStruct{}, err
 	}
 
-	if mapScan["type"] != nil {
-		parameter.ValueStruct.Type = string(mapScan["type"].([]byte))
+	var parameter types.ParameterValueStruct
+	if name, ok := mapScan["name"].([]byte); ok {
+		parameter.Name = string(name)
 	}
-	return parameter
+	if value, ok := mapScan["value"].([]byte); ok {
+		parameter.ValueStruct.Value = string(value)
+	}
+	if typ, ok := mapScan["type"].([]byte); ok {
+		parameter.ValueStruct.Type = string(typ)
+	}
+	if flags, ok := mapScan["flags"].([]byte); ok {
+		_ = parameter.Flag.Scan(flags)
+	}
+
+	return parameter, nil
 }
 
 func parametersRowsParser(rows *sqlx.Rows) []types.ParameterValueStruct {

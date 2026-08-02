@@ -113,6 +113,7 @@ func (tr *TaskRunner) runScriptTask(t queue.ScriptTask) {
 	finished, err := scripts.Start(tr.reqRes, t.ScriptSource())
 	if err != nil {
 		log.Println("script execution error:", err)
+		scripts.LogScriptError(tr.reqRes, err)
 	}
 
 	if !finished {

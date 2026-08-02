@@ -3,6 +3,7 @@ package scripts
 import (
 	acshttp "goacs/acs/http"
 	acsxml "goacs/acs/types"
+	dlog "goacs/models/log"
 	"goacs/models/tasks"
 	"goacs/repository"
 	"goacs/repository/mysql"
@@ -264,6 +265,7 @@ func (se *ScriptEngine) luaSafe(L *lua.LState) int {
 			message = apiErr.Object.String()
 		}
 		log.Printf("[script:%s] safe() call failed: %s\n", se.ReqRes.Session.CPE.SerialNumber, message)
+		logScriptEvent(se.ReqRes, dlog.TypeError, "", message)
 
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(message))

@@ -102,6 +102,12 @@ type bridgeContext struct {
 	reqRes *acshttp.CPERequest
 	ctx    context.Context
 	bs     *Session
+
+	// lastFault is the CPE Fault (if any) returned by the most recent blocking call,
+	// set by call() right when logDeviceFault persists it. runScript consults this
+	// after the script ends to tell whether the error that ended it already has a
+	// device-log entry (see scriptFaultLoggedError).
+	lastFault *acsxml.Fault
 }
 
 // Start begins executing a script in its own goroutine. It blocks the calling
@@ -194,6 +200,9 @@ func runScript(bc *bridgeContext, script string) {
 	registerBlockingFunctions(L, bc)
 
 	err := L.DoString(script)
+	if err != nil && bc.lastFault != nil {
+		err = scriptFaultLoggedError{err}
+	}
 	bc.bs.done <- outcome{err: err}
 }
 
@@ -201,6 +210,8 @@ func runScript(bc *bridgeContext, script string) {
 // against the CURRENT round-trip's envelope, hands it to the pump, and blocks this
 // goroutine until either a reply arrives or the script's overall timeout expires.
 func (bc *bridgeContext) call(kind string, buildXML func(*acshttp.CPERequest) string) (rpcResult, error) {
+	bc.lastFault = nil
+
 	call := &pendingCall{
 		kind:       kind,
 		requestXML: buildXML(bc.reqRes),
@@ -216,6 +227,10 @@ func (bc *bridgeContext) call(kind string, buildXML func(*acshttp.CPERequest) st
 
 	select {
 	case res := <-call.resultCh:
+		if res.fault != nil {
+			bc.lastFault = res.fault
+			logDeviceFault(bc.reqRes, res.fault)
+		}
 		return res, res.err
 	case <-bc.ctx.Done():
 		return rpcResult{}, bc.ctx.Err()
@@ -342,11 +357,15 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 	L.SetGlobal("reboot", L.NewFunction(func(L *lua.LState) int {
 		commandKey := L.OptString(1, "")
 
-		_, err := bc.call("Reboot", func(reqRes *acshttp.CPERequest) string {
+		result, err := bc.call("Reboot", func(reqRes *acshttp.CPERequest) string {
 			return reqRes.Envelope.RebootRequest(commandKey)
 		})
 		if err != nil {
 			L.RaiseError("reboot(): %v", err)
+			return 0
+		}
+		if result.fault != nil {
+			L.RaiseError("reboot(): CPE fault %s: %s", result.fault.DetailFaultCode, result.fault.DetailFaultString)
 			return 0
 		}
 
