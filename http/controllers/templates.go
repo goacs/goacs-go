@@ -24,6 +24,7 @@ type TemplateParameterStoreRequest struct {
 	TemplateId int64      `json:"template_id" validate:"required"`
 	Name       string     `json:"name" validate:"required"`
 	Value      string     `json:"value"`
+	Type       string     `json:"type"`
 	Flag       types.Flag `json:"flag" validate:"required"`
 }
 
@@ -32,6 +33,7 @@ type TemplateParameterUpdateRequest struct {
 	ParameterUUID string     `json:"parameter_uuid" validate:"required"`
 	Name          string     `json:"name" validate:"required"`
 	Value         string     `json:"value"`
+	Type          string     `json:"type"`
 	Flag          types.Flag `json:"flag" validate:"required"`
 }
 
@@ -140,7 +142,7 @@ func UpdateTemplateParameter(ctx *gin.Context) {
 			Name: templatePURequest.Name,
 			ValueStruct: types.ValueStruct{
 				Value: templatePURequest.Value,
-				Type:  "",
+				Type:  templatePURequest.Type,
 			},
 			Flag: templatePURequest.Flag,
 		},
@@ -177,7 +179,7 @@ func StoreTemplateParameter(ctx *gin.Context) {
 			Name: templatePSRequest.Name,
 			ValueStruct: types.ValueStruct{
 				Value: templatePSRequest.Value,
-				Type:  "",
+				Type:  templatePSRequest.Type,
 			},
 			Flag: templatePSRequest.Flag,
 		},

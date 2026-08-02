@@ -502,6 +502,36 @@ func (r *CPERepository) ListCPEParameters(cpe *cpe.CPE, request repository.Pagin
 	return parameters, total
 }
 
+// FilterCPEParameters returns every cpe_parameters row matching filter (same
+// ilike-substring semantics as ListCPEParameters), with no LIMIT/OFFSET applied.
+// Used when a cached_value filter needs to run in Go before paging, since that
+// value comes from the in-memory lookup cache rather than this table - see
+// GetDeviceParameters, which pages the already-filtered result itself.
+func (r *CPERepository) FilterCPEParameters(cpe *cpe.CPE, filter map[string]string) []types.ParameterValueStruct {
+	dialect := goqu.Dialect("mysql")
+
+	baseBulder := dialect.From("cpe_parameters").
+		Where(goqu.C("cpe_uuid").Eq(cpe.UUID))
+
+	for key, value := range filter {
+		baseBulder = baseBulder.Where(goqu.Ex{
+			key: goqu.Op{"ilike": "%" + value + "%"},
+		})
+	}
+
+	sql, _, _ := baseBulder.ToSQL()
+
+	rows, err := r.db.Unsafe().Queryx(sql)
+
+	if err != nil {
+		fmt.Println("Error while fetching query results")
+		fmt.Println(err.Error())
+		return nil
+	}
+
+	return parametersRowsParser(rows)
+}
+
 func (r *CPERepository) LoadParameters(cpe *cpe.CPE) (bool, error) {
 	var err error
 	cpe.ParameterValues, err = r.GetCPEParameters(cpe)

@@ -5,16 +5,18 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import InputText from 'primevue/inputtext'
 import dayjs from 'dayjs'
+import { FilterMatchMode } from '@primevue/core/api'
 import { useServerTable } from '@/composables/useServerTable'
 import { deviceApi } from '@/api/endpoints/device.api'
 
 const router = useRouter()
 
-const table = useServerTable({ fetcher: (params) => deviceApi.list(params) })
-
-function updateFilter(field: string, value: string) {
-  table.onFilterChange({ ...table.filter.value, [field]: value })
-}
+const table = useServerTable({
+  fetcher: (params) => deviceApi.list(params),
+  filters: {
+    serial_number: { value: '', matchMode: FilterMatchMode.CONTAINS },
+  },
+})
 
 function openDevice(uuid: string) {
   router.push({ name: 'devices-view', params: { uuid } })
@@ -32,6 +34,7 @@ onMounted(() => table.load())
     <h1>Devices</h1>
 
     <DataTable
+      v-model:filters="table.filters.value"
       :value="table.items.value"
       :loading="table.loading.value"
       :total-records="table.total.value"
@@ -39,19 +42,18 @@ onMounted(() => table.load())
       :first="(table.page.value - 1) * table.perPage.value"
       lazy
       paginator
+      filter-display="row"
       :rows-per-page-options="[25, 50, 100]"
       size="small"
       data-key="uuid"
       @page="table.onPage"
+      @filter="table.onFilter"
       @row-click="(event) => openDevice(event.data.uuid)"
       style="cursor: pointer"
     >
-      <Column field="serial_number" header="Serial number">
-        <template #header>
-          <div class="col-filter">
-            Serial number
-            <InputText size="small" @click.stop @input="(e: Event) => updateFilter('serial_number', (e.target as HTMLInputElement).value)" />
-          </div>
+      <Column field="serial_number" header="Serial number" :show-filter-menu="false">
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Search" @input="filterCallback()" />
         </template>
       </Column>
       <Column field="oui" header="OUI" />
@@ -63,11 +65,3 @@ onMounted(() => table.load())
     </DataTable>
   </div>
 </template>
-
-<style scoped>
-.col-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-</style>

@@ -5,6 +5,7 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import FlagSelect from '@/components/selects/FlagSelect.vue'
+import XsdTypeSelect from '@/components/selects/XsdTypeSelect.vue'
 import { deviceApi, type ParameterRequest } from '@/api/endpoints/device.api'
 import { emptyFlag, type Parameter } from '@/api/types/device'
 import { useApiErrors } from '@/composables/useApiErrors'
@@ -15,17 +16,19 @@ const visible = defineModel<boolean>('visible', { required: true })
 
 const { fieldErrors, generalError, run } = useApiErrors()
 
-const form = reactive<ParameterRequest>({ name: '', value: '', flag: emptyFlag() })
+const form = reactive<ParameterRequest>({ name: '', value: '', type: '', flag: emptyFlag() })
 
 watch(visible, (isVisible) => {
   if (!isVisible) return
   if (props.parameter) {
     form.name = props.parameter.name
     form.value = props.parameter.valuestruct.value
+    form.type = props.parameter.valuestruct.type
     form.flag = { ...props.parameter.flag }
   } else {
     form.name = ''
     form.value = ''
+    form.type = ''
     form.flag = emptyFlag()
   }
 })
@@ -57,6 +60,11 @@ async function save() {
         <label>Value</label>
         <InputText v-model="form.value" fluid />
         <small v-if="fieldErrors.value" class="error">{{ fieldErrors.value }}</small>
+      </div>
+
+      <div class="field">
+        <label>Type</label>
+        <XsdTypeSelect v-model="form.type" />
       </div>
 
       <div class="field">

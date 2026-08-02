@@ -6,11 +6,15 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import { FilterMatchMode } from '@primevue/core/api'
 import { useServerTable } from '@/composables/useServerTable'
 import { templateApi, type TemplateListItem } from '@/api/endpoints/template.api'
 
 const router = useRouter()
-const table = useServerTable<TemplateListItem>({ fetcher: (params) => templateApi.list(params) })
+const table = useServerTable<TemplateListItem>({
+  fetcher: (params) => templateApi.list(params),
+  filters: { name: { value: '', matchMode: FilterMatchMode.CONTAINS } },
+})
 
 const dialogVisible = ref(false)
 const newName = ref('')
@@ -44,6 +48,7 @@ onMounted(() => table.load())
     </div>
 
     <DataTable
+      v-model:filters="table.filters.value"
       :value="table.items.value"
       :loading="table.loading.value"
       :total-records="table.total.value"
@@ -51,13 +56,19 @@ onMounted(() => table.load())
       :first="(table.page.value - 1) * table.perPage.value"
       lazy
       paginator
+      filter-display="row"
       size="small"
       data-key="id"
       @page="table.onPage"
+      @filter="table.onFilter"
       @row-click="(event) => openTemplate(event.data.id)"
       style="cursor: pointer"
     >
-      <Column field="name" header="Name" />
+      <Column field="name" header="Name" :show-filter-menu="false">
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Search by name..." @input="filterCallback()" />
+        </template>
+      </Column>
       <Column field="parameter_count" header="Parameters" />
     </DataTable>
 

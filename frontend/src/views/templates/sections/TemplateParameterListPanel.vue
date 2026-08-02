@@ -4,8 +4,10 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Panel from 'primevue/panel'
+import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
 import { useConfirm } from 'primevue/useconfirm'
+import { FilterMatchMode } from '@primevue/core/api'
 import { useServerTable } from '@/composables/useServerTable'
 import { templateApi } from '@/api/endpoints/template.api'
 import type { TemplateParameter } from '@/api/types/template'
@@ -17,6 +19,11 @@ const confirm = useConfirm()
 
 const table = useServerTable<TemplateParameter>({
   fetcher: (params) => templateApi.getParameters(props.templateId, params),
+  filters: {
+    name: { value: '', matchMode: FilterMatchMode.CONTAINS },
+    value: { value: '', matchMode: FilterMatchMode.CONTAINS },
+    type: { value: '', matchMode: FilterMatchMode.CONTAINS },
+  },
 })
 const dialogVisible = ref(false)
 const editingParameter = ref<TemplateParameter | null>(null)
@@ -53,6 +60,7 @@ onMounted(() => table.load())
     </template>
 
     <DataTable
+      v-model:filters="table.filters.value"
       :value="table.items.value"
       :loading="table.loading.value"
       :total-records="table.total.value"
@@ -60,12 +68,27 @@ onMounted(() => table.load())
       :first="(table.page.value - 1) * table.perPage.value"
       lazy
       paginator
+      filter-display="row"
       size="small"
       @page="table.onPage"
+      @filter="table.onFilter"
     >
-      <Column field="name" header="Name" />
-      <Column header="Value">
+      <Column field="name" header="Name" :show-filter-menu="false">
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Filter by name..." @input="filterCallback()" />
+        </template>
+      </Column>
+      <Column header="Value" filter-field="value" :show-filter-menu="false">
         <template #body="{ data }">{{ data.valuestruct.value }}</template>
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Filter by value..." @input="filterCallback()" />
+        </template>
+      </Column>
+      <Column header="Type" filter-field="type" :show-filter-menu="false">
+        <template #body="{ data }">{{ data.valuestruct.type }}</template>
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Filter by type..." @input="filterCallback()" />
+        </template>
       </Column>
       <Column header="Flags">
         <template #body="{ data }"><Tag :value="flagToString(data.flag)" severity="secondary" /></template>

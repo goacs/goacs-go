@@ -7,6 +7,7 @@ import type { LogEntry } from '../types/log'
 export interface ParameterRequest {
   name: string
   value: string
+  type: string
   flag: Flag
 }
 

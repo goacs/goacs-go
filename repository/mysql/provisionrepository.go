@@ -65,7 +65,13 @@ var provisionSortableColumns = map[string]bool{
 	"updated_at": true,
 }
 
-var provisionFilterableColumns = provisionSortableColumns
+var provisionFilterableColumns = map[string]bool{
+	"name":       true,
+	"created_at": true,
+	"updated_at": true,
+	"events":     true,
+	"requests":   true,
+}
 
 // Find returns a single non-deleted provision together with its rules.
 func (r *ProvisionRepository) Find(id int64) (*provisions.Provision, error) {

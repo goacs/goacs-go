@@ -31,6 +31,7 @@ type UpdateDeviceTaskRequest struct {
 type ParameterRequest struct {
 	Name  string     `json:"name" validate:"required"`
 	Value string     `json:"value"`
+	Type  string     `json:"type"`
 	Flag  types.Flag `json:"flag" validate:"required"`
 }
 
@@ -97,11 +98,52 @@ func GetDeviceParameters(ctx *gin.Context) {
 	paginatorRequest := repository.PaginatorRequestFromContext(ctx)
 	cperepository := mysql.NewCPERepository(repository.GetConnection())
 	cpeModel, err := getCPEFromContext(ctx, cperepository)
-	if err == nil {
-		parameters, total := cperepository.ListCPEParameters(cpeModel, paginatorRequest)
-		responseData := repository.NewPaginatorResponse(paginatorRequest, total, withCachedValue(cpeModel, parameters))
-		response.ResponsePaginatior(ctx, responseData)
+	if err != nil {
+		return
 	}
+
+	// cached_value isn't a cpe_parameters column - it comes from the in-memory
+	// lookup cache, merged in afterward by withCachedValue - so it can't be
+	// pushed down into the SQL filter/pagination like the other columns. When
+	// requested, fetch every row matching the remaining filters unpaginated,
+	// enrich, filter by cached_value in Go, then page the result ourselves.
+	if cachedValueFilter, ok := paginatorRequest.Filter["cached_value"]; ok {
+		remainingFilter := make(map[string]string, len(paginatorRequest.Filter))
+		for key, value := range paginatorRequest.Filter {
+			if key != "cached_value" {
+				remainingFilter[key] = value
+			}
+		}
+
+		parameters := cperepository.FilterCPEParameters(cpeModel, remainingFilter)
+		filtered := filterByCachedValue(withCachedValue(cpeModel, parameters), cachedValueFilter)
+
+		start := paginatorRequest.CalcOffset()
+		end := start + paginatorRequest.PerPage
+		if start > len(filtered) {
+			start = len(filtered)
+		}
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+
+		response.ResponsePaginatior(ctx, repository.NewPaginatorResponse(paginatorRequest, len(filtered), filtered[start:end]))
+		return
+	}
+
+	parameters, total := cperepository.ListCPEParameters(cpeModel, paginatorRequest)
+	responseData := repository.NewPaginatorResponse(paginatorRequest, total, withCachedValue(cpeModel, parameters))
+	response.ResponsePaginatior(ctx, responseData)
+}
+
+func filterByCachedValue(parameters []ParameterWithCachedValue, filter string) []ParameterWithCachedValue {
+	filtered := make([]ParameterWithCachedValue, 0, len(parameters))
+	for _, p := range parameters {
+		if p.CachedValue != nil && strings.Contains(*p.CachedValue, filter) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // withCachedValue enriches each DB-stored parameter with the value from the
@@ -301,7 +343,7 @@ func parameterBaseRequest(ctx *gin.Context) types.ParameterValueStruct {
 		Name: parameterRequest.Name,
 		ValueStruct: types.ValueStruct{
 			Value: parameterRequest.Value,
-			Type:  "",
+			Type:  parameterRequest.Type,
 		},
 		Flag: parameterRequest.Flag,
 	}
@@ -677,7 +719,7 @@ func PatchDeviceParameters(ctx *gin.Context) {
 	for _, parameterRequest := range patchRequest.Parameters {
 		parameters = append(parameters, types.ParameterValueStruct{
 			Name:        parameterRequest.Name,
-			ValueStruct: types.ValueStruct{Value: parameterRequest.Value},
+			ValueStruct: types.ValueStruct{Value: parameterRequest.Value, Type: parameterRequest.Type},
 			Flag:        parameterRequest.Flag,
 		})
 	}
