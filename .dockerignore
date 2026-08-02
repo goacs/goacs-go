@@ -1,0 +1,9 @@
+.git
+.github
+_doc
+frontend
+testrequests
+storage
+*.md
+.env
+!.env.example

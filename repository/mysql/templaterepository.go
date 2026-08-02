@@ -145,10 +145,31 @@ func (r *TemplateRepository) GetPrioritizedParametersForCPE(cpe *cpe.CPE) []type
 		Order(goqu.I("c2t.priority").Asc()).ToSQL()
 
 	//log.Println("GetPrioritizedParametersForCPE", orderedTemplatesIdsQuery)
-	err := r.db.Select(&prioParams, orderedTemplatesIdsQuery, args...)
+	rows, err := r.db.Unsafe().Queryx(orderedTemplatesIdsQuery, args...)
 
 	if err != nil {
 		log.Println("Error in GetPrioritizedParametersForCPE", err.Error())
+		return prioParams
+	}
+
+	// Same ValueStruct.Value/Type mapping gap as ListTemplateParameters below -
+	// StructScan can't reach into the embedded ParameterValueStruct.ValueStruct
+	// without a dotted db tag, so it's patched from the raw row afterwards.
+	for rows.Next() {
+		var prioParam types.PrioritizedParameters
+		mapScan := make(map[string]interface{})
+
+		_ = rows.StructScan(&prioParam)
+		_ = rows.MapScan(mapScan)
+
+		if value, ok := mapScan["value"].([]byte); ok {
+			prioParam.ValueStruct.Value = string(value)
+		}
+		if paramType, ok := mapScan["type"].([]byte); ok {
+			prioParam.ValueStruct.Type = string(paramType)
+		}
+
+		prioParams = append(prioParams, prioParam)
 	}
 
 	return prioParams
@@ -185,12 +206,33 @@ func (r *TemplateRepository) ListTemplateParameters(template *templates.Template
 
 	log.Println(parametersSql)
 
-	err := r.db.Unsafe().Select(&parameters, parametersSql)
+	rows, err := r.db.Unsafe().Queryx(parametersSql)
 
 	if err != nil {
 		fmt.Println("Error while fetching query results")
 		fmt.Println(err.Error())
 		return nil, 0
+	}
+
+	// StructScan alone can't populate the embedded ParameterValueStruct.ValueStruct
+	// (its Value/Type fields have no dotted db tag sqlx would recurse through), so
+	// value/type are re-read from the raw row - same workaround CPERepository uses
+	// for cpe_parameters in parametersRowsParser.
+	for rows.Next() {
+		var parameter templates.TemplateParameter
+		mapScan := make(map[string]interface{})
+
+		_ = rows.StructScan(&parameter)
+		_ = rows.MapScan(mapScan)
+
+		if value, ok := mapScan["value"].([]byte); ok {
+			parameter.ValueStruct.Value = string(value)
+		}
+		if paramType, ok := mapScan["type"].([]byte); ok {
+			parameter.ValueStruct.Type = string(paramType)
+		}
+
+		parameters = append(parameters, parameter)
 	}
 
 	return parameters, total
@@ -226,6 +268,24 @@ func (r *TemplateRepository) AssignTemplateToDevice(cpe *cpe.CPE, template_id in
 
 	if err != nil {
 		log.Println("AssignTemplateToDevice error", err)
+		return err
+	}
+
+	return nil
+}
+
+func (r *TemplateRepository) UpdatePriority(cpe *cpe.CPE, template_id int64, priority int64) error {
+	dialect := goqu.Dialect("mysql")
+
+	query, args, _ := dialect.Update("cpe_to_templates").Prepared(true).
+		Set(goqu.Record{"priority": priority}).
+		Where(goqu.Ex{"cpe_uuid": cpe.UUID, "template_id": template_id}).
+		ToSQL()
+
+	_, err := r.db.Exec(query, args...)
+
+	if err != nil {
+		log.Println("UpdatePriority error", err)
 		return err
 	}
 

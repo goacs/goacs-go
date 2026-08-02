@@ -96,6 +96,10 @@ type AddObjectResponseStruct struct {
 	Status         int `xml:"Body>AddObjectResponse>Status"`
 }
 
+type SetParameterValuesResponseStruct struct {
+	Status int `xml:"Body>SetParameterValuesResponse>Status"`
+}
+
 type DeleteObjectResponseStruct struct {
 	Status int `xml:"Body>DeleteObjectResponse>Status"`
 }
@@ -364,6 +368,22 @@ func (envelope *Envelope) DownloadRequest(requestStruct DownloadRequestStruct) s
 
 	request += `</cwmp:Download>
     </soapenv:Body>
+</soapenv:Envelope>`
+
+	return request
+}
+
+func (envelope *Envelope) RebootRequest(commandKey string) string {
+	request := `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:cwmp="urn:dslforum-org:cwmp-1-0" xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Header>
+      <cwmp:ID soapenv:mustUnderstand="1">` + envelope.Header.ID + `</cwmp:ID>
+  </soapenv:Header>
+  <soapenv:Body>
+      <cwmp:Reboot>
+			<CommandKey>` + commandKey + `</CommandKey>
+		</cwmp:Reboot>
+  </soapenv:Body>
 </soapenv:Envelope>`
 
 	return request

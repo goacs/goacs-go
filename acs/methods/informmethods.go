@@ -2,9 +2,11 @@ package methods
 
 import (
 	"encoding/xml"
+	acscontext "goacs/acs/context"
 	"goacs/acs/http"
 	acsxml "goacs/acs/types"
 	"goacs/lib"
+	"goacs/lib/cache"
 	"goacs/models/tasks"
 	"goacs/repository/mysql"
 	"log"
@@ -37,6 +39,13 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 		InformDecision.ReqRes.Session.IsBoot = true
 	}
 
+	// GET /api/device/:uuid/provision armed this flag before kicking the device:
+	// treat this Inform like a boot, forcing the full GetParameterNames/
+	// GetParameterValues walk below instead of waiting for the next periodic one.
+	if _, forced := cache.Global.Get(acscontext.KeyFor(acscontext.ProvisionPrefix, InformDecision.ReqRes.Session.CPE.SerialNumber)); forced {
+		InformDecision.ReqRes.Session.IsBoot = true
+	}
+
 	_, _ = cpeRepository.SaveParameters(&InformDecision.ReqRes.Session.CPE)
 	task := tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)
 	task.Task = acsxml.InformResp
@@ -46,7 +55,7 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 		//InformDecision.ReqRes.Session.RunGPV = true
 		InformDecision.ReqRes.Session.CurrentState = acsxml.GPNReq
 		task = tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)
-		task.Task = acsxml.GPNReq
+		task.AsGetParameterNames(InformDecision.ReqRes.Session.CPE.Root + ".")
 		task.ParameterInfo = append(task.ParameterInfo, acsxml.ParameterInfo{
 			Name: InformDecision.ReqRes.Session.CPE.Root + ".",
 			Done: false,

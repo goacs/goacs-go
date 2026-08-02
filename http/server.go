@@ -5,8 +5,10 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"goacs/acs/logic"
+	"goacs/http/middleware/auth"
 	"goacs/lib"
-	"time"
+	"goacs/repository"
+	"strings"
 )
 
 var Instance *gin.Engine
@@ -16,22 +18,16 @@ func Start() {
 	fmt.Println("Server setup")
 	Instance = gin.Default()
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = []string{"http://localhost:8080", "https://localhost:8080"}
+	corsConfig.AllowOrigins = strings.Split(env.Get("CORS_ALLOWED_ORIGINS", "http://localhost:8080,https://localhost:8080,http://localhost:5173,https://localhost:5173"), ",")
 	corsConfig.AllowCredentials = true
 	corsConfig.AllowHeaders = []string{"Origin", "Authorization", "Content-Type", "Accept", "Content-Length", "Connection", "Upgrade"}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 
 	Instance.Use(cors.New(corsConfig))
 
 	NewSocketIO(Instance)
 	go GetSocketServer().Serve()
-
-	go func() {
-		for {
-			//log.Println("sending event")
-			GetSocketServer().BroadcastToRoom("/", "all", "supa event")
-			time.Sleep(time.Second * 2)
-		}
-	}()
+	repository.OnLogSaved = EmitDeviceLogged
 
 	registerAcsHandler(Instance)
 	RegisterApiRoutes(Instance)
@@ -56,13 +52,14 @@ func Start() {
 }
 
 func registerAcsHandler(router *gin.Engine) {
-	router.GET("/acs", func(ctx *gin.Context) {
-		defer ctx.Request.Body.Close()
-		logic.CPERequestDecision(ctx.Request, ctx.Writer)
-	})
+	acsGroup := router.Group("/acs")
+	acsGroup.Use(auth.ACSAuthMiddleware())
 
-	router.POST("/acs", func(ctx *gin.Context) {
+	handler := func(ctx *gin.Context) {
 		defer ctx.Request.Body.Close()
-		logic.CPERequestDecision(ctx.Request, ctx.Writer)
-	})
+		logic.HandleCPERequest(ctx.Request, ctx.Writer)
+	}
+
+	acsGroup.GET("", handler)
+	acsGroup.POST("", handler)
 }

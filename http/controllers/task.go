@@ -27,6 +27,33 @@ func GetGlobalTasks(ctx *gin.Context) {
 	response.ResponseData(ctx, taskrepository.GetGlobalTasks())
 }
 
+func GetGlobalTask(ctx *gin.Context) {
+	taskId, err := strconv.ParseInt(ctx.Param("taskid"), 10, 64)
+	if err != nil {
+		response.ResponseError(ctx, 400, "Invalid task id", "")
+		return
+	}
+
+	taskrepository := mysql.NewTasksRepository(repository.GetConnection())
+	response.ResponseData(ctx, taskrepository.GetTask(taskId))
+}
+
+func DeleteGlobalTask(ctx *gin.Context) {
+	taskId, err := strconv.ParseInt(ctx.Param("taskid"), 10, 64)
+	if err != nil {
+		response.ResponseError(ctx, 400, "Invalid task id", "")
+		return
+	}
+
+	taskrepository := mysql.NewTasksRepository(repository.GetConnection())
+	if err := taskrepository.Delete(taskId); err != nil {
+		response.Response500(ctx, "Cannot delete task", err)
+		return
+	}
+
+	response.ResponseData(ctx, "")
+}
+
 func AddGlobalTask(ctx *gin.Context) {
 	var globalTaskRequst AddGlobalTaskRequest
 	_ = ctx.BindJSON(&globalTaskRequst)

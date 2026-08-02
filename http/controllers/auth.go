@@ -58,6 +58,38 @@ func Login(ctx *gin.Context) {
 	response.ResponseData(ctx, loginResponse)
 }
 
+// Logout is a no-op on the server: JWTs here are stateless (no blacklist), so
+// the client simply discards the token. Kept as a real endpoint so the
+// frontend has a single, uniform auth contract to call on sign-out.
+func Logout(ctx *gin.Context) {
+	response.ResponseData(ctx, "")
+}
+
+func Refresh(ctx *gin.Context) {
+	userRepository := mysql.NewUserRepository(repository.GetConnection())
+	userModel, err := userRepository.Find(CurrentUserUUID(ctx))
+
+	if err != nil {
+		response.ResponseError(ctx, 404, "Cannot find user", err)
+		return
+	}
+
+	response.ResponseData(ctx, LoginResponse{
+		User:  userModel,
+		Token: NewTokenForUser(userModel),
+	})
+}
+
+func CurrentUserUUID(ctx *gin.Context) string {
+	value, exists := ctx.Get("user_uuid")
+	if !exists {
+		return ""
+	}
+
+	uuid, _ := value.(string)
+	return uuid
+}
+
 func NewTokenForUser(user user.User) string {
 	env := new(lib.Env)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
