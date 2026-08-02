@@ -1,0 +1,33 @@
+name: Manual Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch (or any git ref) to build
+        required: true
+        type: string
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+      - id: vars
+        run: |
+          slug=$(echo "${{ inputs.branch }}" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9._-]+#-#g' | sed -E 's#^-+|-+$##g')
+          sha=$(git rev-parse --short HEAD)
+          echo "tag=manual-${slug}-${sha}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    uses: ./.github/workflows/_reusable-docker-build.yml
+    with:
+      ref: ${{ inputs.branch }}
+      image-tag: ${{ needs.resolve.outputs.tag }}
+      push: true
+      artifact-retention-days: 14

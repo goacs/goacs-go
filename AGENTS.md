@@ -88,13 +88,37 @@ Separate Vite + Vue 3 + TypeScript + PrimeVue + Pinia project, deployed independ
 
 ```bash
 cp .env.example .env            # adjust MYSQL_PORT etc. if 3306 is already taken locally
-docker compose up -d goacs-db   # MariaDB, migrations in contrib/database/ run automatically on first init
+docker compose up -d goacs-db   # MariaDB only - schema is NOT auto-applied, see below
+go run main.go migrate          # applies contrib/database/*.sql, tracked in schema_migrations
 go run main.go                  # backend on :8085 (HTTP_PORT in .env)
 
 cd frontend
 npm install
 npm run dev                     # frontend on :5173, talks to the backend via VITE_API_URL
 ```
+
+`contrib/database/*.sql` is applied **only** via `go run main.go migrate`, never automatically -
+the MariaDB service no longer bulk-loads that directory on container init
+(`docker-entrypoint-initdb.d` was deliberately removed from `docker-compose.yml`). Every
+environment, fresh or existing, goes through this same tracked path (`schema_migrations`
+table, one row per applied filename - same idea as Laravel's migrations table). Run it
+again any time an update adds a new numbered file there; already-applied files are
+skipped automatically. See the doc comment on `repository.RunMigrations` for why this
+doesn't try to guess "already applied" from SQL error codes (that only works for
+CREATE-TABLE-style DDL and silently breaks for column modifications or plain inserts) -
+any error during a normal `migrate` run is a real error, full stop.
+
+For a database that already has schema from before this tool existed (e.g. was
+bootstrapped by the old `docker-entrypoint-initdb.d` mechanism), run **once**, naming
+exactly the files that database already has (not the whole directory - an existing
+deployment is rarely caught up to the newest file, and baselining one that hasn't
+actually run yet would silently skip it forever):
+
+```bash
+go run main.go migrate --baseline 01_initial.sql 02_provisioning.sql 03_logs_and_settings.sql
+```
+
+then use plain `go run main.go migrate` from then on to apply anything newer for real.
 
 Backend checks before committing:
 ```bash

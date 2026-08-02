@@ -7,7 +7,6 @@ services:
     restart: always
     volumes:
       - goacs-database-file:/var/lib/mysql
-      - ./contrib/database:/docker-entrypoint-initdb.d
       - ./contrib/conf:/etc/mysql/conf.d
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}

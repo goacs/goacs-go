@@ -1,0 +1,26 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # 02:00 UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      date-tag: ${{ steps.vars.outputs.date-tag }}
+    steps:
+      - id: vars
+        run: echo "date-tag=nightly-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    uses: ./.github/workflows/_reusable-docker-build.yml
+    with:
+      ref: master
+      image-tag: nightly
+      extra-tags: ${{ needs.resolve.outputs.date-tag }}
+      push: true
+      artifact-retention-days: 7

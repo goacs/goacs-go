@@ -1,0 +1,35 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    uses: ./.github/workflows/_reusable-docker-build.yml
+    with:
+      ref: ${{ github.ref_name }}
+      image-tag: ${{ github.ref_name }}
+      extra-tags: latest
+      push: true
+      artifact-retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/goacs-linux-amd64/goacs-linux-amd64.tar.gz
+            artifacts/goacs-linux-arm64/goacs-linux-arm64.tar.gz
+            artifacts/frontend-dist/frontend-dist.tar.gz
