@@ -18,6 +18,7 @@
 package testscenarios
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -60,40 +61,43 @@ func TestProvisionFromStoredParameters(t *testing.T) {
 	}
 }
 
-// TestProvisionNowForcesFullWalk exercises the admin panel's "provision now"
+// TestProvisionNowForcesBootProvisioning exercises the admin panel's "provision now"
 // action (GET /api/device/:uuid/provision, http/controllers/device.go
-// GetDeviceProvision): it arms a cache flag that forces the device's NEXT
-// Inform into a full GetParameterNames/GetParameterValues walk even if that
-// Inform would otherwise be a lightweight periodic check-in, then kicks the
-// device. This checks the forcing effect directly via the wire-level
-// GetParameterNames call appearing in a session that would not normally
-// carry one - not the Kick's live delivery, which is already covered by the
-// kick() Lua function scenario in scripts_test.go (and goacs-client's
-// single-shot `device` command doesn't keep its Connection Request listener
-// alive past its own session anyway).
-func TestProvisionNowForcesFullWalk(t *testing.T) {
+// GetDeviceProvision): it forces the device's NEXT Inform to be treated like a boot
+// for provisioning rule matching (acs/methods/informmethods.go,
+// Session.EnsureEventCode adding "1 BOOT" to the matched event codes) even if that
+// Inform would otherwise be a lightweight periodic check-in, then kicks the device.
+// There is no separate ACS-side parameter walk anymore - discovery is entirely up to
+// whatever provision matches, so this checks the forcing effect through the seeded
+// "init" provision (contrib/database/06_init_provision.sql, scoped to
+// "0 BOOTSTRAP,1 BOOT") re-running its own script and logging its marker again on a
+// session that would not normally match it - not the Kick's live delivery, which is
+// already covered by the kick() Lua function scenario in scripts_test.go (and
+// goacs-client's single-shot `device` command doesn't keep its Connection Request
+// listener alive past its own session anyway).
+func TestProvisionNowForcesBootProvisioning(t *testing.T) {
 	srv, client := newEnv(t)
 
 	_, profile, profilesDir, serial := scopedRule(t)
+	initMarker := fmt.Sprintf("[script:%s] init: basic parameters read and saved", serial)
 
-	// Session A: bootstrap registers the CPE. Since it's a brand new device, this
-	// session runs the seeded "init" Provision (contrib/database/06_init_provision.sql)
-	// instead of a full walk - it does not, on its own, produce a
-	// "<cwmp:GetParameterNames" wire log entry.
+	// Session A: bootstrap registers the CPE and runs the seeded "init" provision once.
 	runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
 	cpe := client.FindDeviceBySerial(t, serial, findDeviceTimeout)
 
-	// Baseline: an ordinary periodic Inform on an already-known device does
-	// NOT re-walk the whole tree.
-	plainPeriodic := runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "2 PERIODIC"})
-	if strings.Contains(plainPeriodic.Stdout, "<cwmp:GetParameterNames") {
-		t.Fatalf("a plain periodic Inform on an already-known device should not trigger a full GetParameterNames walk; stdout:\n%s", plainPeriodic.Stdout)
+	// Baseline: an ordinary periodic Inform on an already-known device does NOT
+	// re-match the boot-scoped "init" provision.
+	mark := len(srv.Output())
+	runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "2 PERIODIC"})
+	if strings.Contains(outputSince(srv, mark), initMarker) {
+		t.Fatalf("a plain periodic Inform on an already-known device should not re-run a boot-scoped provision; server output:\n%s", outputSince(srv, mark))
 	}
 
 	client.TriggerProvisionNow(t, cpe.UUID)
 
-	forced := runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "2 PERIODIC"})
-	if !strings.Contains(forced.Stdout, "<cwmp:GetParameterNames") {
-		t.Fatalf("provision-now should force the next Inform (even a periodic one) into a full GetParameterNames walk; stdout:\n%s", forced.Stdout)
+	mark = len(srv.Output())
+	runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "2 PERIODIC"})
+	if !strings.Contains(outputSince(srv, mark), initMarker) {
+		t.Fatalf("provision-now should force the next Inform (even a periodic one) to match and re-run the boot-scoped init provision; server output:\n%s", outputSince(srv, mark))
 	}
 }

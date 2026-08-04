@@ -120,7 +120,10 @@ func (se *ScriptEngine) luaDeleteParameter(L *lua.LState) int {
 
 func (se *ScriptEngine) luaSaveDevice(L *lua.LState) int {
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_ = cpeRepository.BulkInsertOrUpdateParameters(&se.ReqRes.Session.CPE, se.ReqRes.Session.CPE.ParameterValues)
+	// preserveServerControlled=true: saveDevice() bulk-flushes the whole in-memory
+	// parameter set, which mixes in whatever the CPE most recently reported - must not
+	// clobber a Send/System-flagged parameter the ACS itself controls.
+	_ = cpeRepository.BulkInsertOrUpdateParameters(&se.ReqRes.Session.CPE, se.ReqRes.Session.CPE.ParameterValues, true)
 	return 0
 }
 

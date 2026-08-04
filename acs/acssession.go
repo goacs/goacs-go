@@ -221,6 +221,23 @@ func (session *ACSSession) FillCPESessionFromInform(inform types.Inform) {
 	session.FillCPESessionBaseInfo(inform.ParameterList)
 }
 
+// EnsureEventCode adds code to CurrentEventCodes if it isn't already present - used
+// when something other than the CPE's own wire-level Inform.Events forces this session
+// into boot-like handling (e.g. GET /api/device/:uuid/provision), so a provisioning
+// rule scoped to "1 BOOT" still matches even though the real Inform carried a
+// different event (e.g. "2 PERIODIC"). This is deliberately the only mechanism for
+// that now - forcing IsBoot no longer triggers any ACS-side GetParameterNames/
+// GetParameterValues walk of its own; discovery is entirely the matched provision's
+// own script's job.
+func (session *ACSSession) EnsureEventCode(code string) {
+	for _, existing := range session.CurrentEventCodes {
+		if existing == code {
+			return
+		}
+	}
+	session.CurrentEventCodes = append(session.CurrentEventCodes, code)
+}
+
 func (session *ACSSession) FillCPESessionBaseInfo(parameters []types.ParameterValueStruct) {
 	var value string
 	value, _ = session.CPE.GetParameterValue(session.CPE.Root + ".ManagementServer.ConnectionRequestURL")

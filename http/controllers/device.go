@@ -568,10 +568,12 @@ func kickCPE(cpeModel *cpe.CPE) {
 	acsRequest.Kick()
 }
 
-// GetDeviceProvision forces the device's next Inform to run a full
-// GetParameterNames/GetParameterValues walk (as if it had just booted), then
-// kicks it so that Inform happens now rather than at the next periodic
-// interval. Port of goacs-php's DeviceController::provision.
+// GetDeviceProvision forces the device's next Inform to be treated like a boot for
+// provisioning rule matching (acs/methods/informmethods.go, Session.EnsureEventCode),
+// so any provision scoped to the "1 BOOT" event matches and its own script does
+// whatever discovery/setup it needs - there is no separate ACS-side parameter walk of
+// its own anymore. Then kicks the device so that Inform happens now rather than at the
+// next periodic interval. Port of goacs-php's DeviceController::provision.
 func GetDeviceProvision(ctx *gin.Context) {
 	cperepository := mysql.NewCPERepository(repository.GetConnection())
 	cpeModel, err := getCPEFromContext(ctx, cperepository)
@@ -724,7 +726,10 @@ func PatchDeviceParameters(ctx *gin.Context) {
 		})
 	}
 
-	if ok := cperepository.BulkInsertOrUpdateParameters(cpeModel, parameters); !ok {
+	// preserveServerControlled=false: an explicit admin edit is exactly the kind of
+	// intentional write these flags are meant to allow - including setting/clearing
+	// Send or System themselves.
+	if ok := cperepository.BulkInsertOrUpdateParameters(cpeModel, parameters, false); !ok {
 		response.Response500(ctx, "Cannot patch parameters", "")
 		return
 	}

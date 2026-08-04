@@ -37,13 +37,17 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 
 	if env.Get("DEBUG", "false") == "true" {
 		InformDecision.ReqRes.Session.IsBoot = true
+		InformDecision.ReqRes.Session.EnsureEventCode("1 BOOT")
 	}
 
 	// GET /api/device/:uuid/provision armed this flag before kicking the device:
-	// treat this Inform like a boot, forcing the full GetParameterNames/
-	// GetParameterValues walk below instead of waiting for the next periodic one.
+	// treat this Inform like a boot so that a provision scoped to "1 BOOT" matches
+	// and its own script does whatever discovery/setup it needs - there is no
+	// separate ACS-side walk anymore, forcing IsBoot only affects provisioning
+	// rule matching (see Session.EnsureEventCode).
 	if _, forced := cache.Global.Get(acscontext.KeyFor(acscontext.ProvisionPrefix, InformDecision.ReqRes.Session.CPE.SerialNumber)); forced {
 		InformDecision.ReqRes.Session.IsBoot = true
+		InformDecision.ReqRes.Session.EnsureEventCode("1 BOOT")
 	}
 
 	// GET /api/device/:uuid/lookup armed this flag before kicking the device:

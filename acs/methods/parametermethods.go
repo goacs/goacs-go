@@ -238,7 +238,10 @@ func (pd *ParameterDecisions) PersistFetchedParameterValues(parameterList []acsx
 	}
 
 	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
-		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
+		// preserveServerControlled=true: this is a bulk resync built from whatever the
+		// CPE just reported, not an intentional ACS write - must not clobber a
+		// Send/System-flagged parameter's pending/authoritative value.
+		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues, true)
 	}
 }
 
@@ -263,7 +266,10 @@ func (pd *ParameterDecisions) SetParameterValuesResponseParser() {
 
 	pd.ReqRes.Session.CPE.AddParameterValues(confirmed)
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, confirmed)
+	// preserveServerControlled=false: this IS the ACS's own SetParameterValues push
+	// completing - it must persist even for a Send/System-flagged parameter, otherwise
+	// that flag could never be fulfilled.
+	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, confirmed, false)
 }
 
 func (pd *ParameterDecisions) PrepareParametersToSend() {
