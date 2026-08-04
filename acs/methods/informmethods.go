@@ -60,28 +60,4 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 	task.Task = acsxml.InformResp
 	InformDecision.ReqRes.Session.AddTask(task)
 
-	// Brand-new devices (IsNewInACS) deliberately do NOT trigger this walk anymore -
-	// their parameters are read via the curated "init" Provision instead (see
-	// contrib/database/06_init_provision.sql and acs/scripts/README.md), which uses
-	// the Lua sandbox's blocking getParameterValues() to fetch just DeviceInfo. and
-	// ManagementServer. in one round-trip instead of walking the entire device
-	// model one leaf at a time. Already-known devices rebooting (a real IsBoot from
-	// "0 BOOTSTRAP"/"1 BOOT"), forced via the admin "provision now" action
-	// (GET /api/device/:uuid/provision), or forced via the admin "lookup now"
-	// action (GET /api/device/:uuid/lookup, Session.LookupOnly), keep this full
-	// walk unchanged - LookupOnly's walk just runs in a read-only mode, see the
-	// guards in acs/methods/parametermethods.go.
-	if (InformDecision.ReqRes.Session.IsBoot && !InformDecision.ReqRes.Session.IsNewInACS) || InformDecision.ReqRes.Session.LookupOnly {
-		//InformDecision.ReqRes.Session.RunGPV = true
-		InformDecision.ReqRes.Session.CurrentState = acsxml.GPNReq
-		task = tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)
-		task.AsGetParameterNames(InformDecision.ReqRes.Session.CPE.Root + ".")
-		task.ParameterInfo = append(task.ParameterInfo, acsxml.ParameterInfo{
-			Name: InformDecision.ReqRes.Session.CPE.Root + ".",
-			Done: false,
-		})
-		task.NextLevel = true
-		InformDecision.ReqRes.Session.AddTask(task)
-	}
-
 }

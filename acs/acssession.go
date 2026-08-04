@@ -4,14 +4,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	digest_auth_client "github.com/xinsnake/go-http-digest-auth-client"
+	acscontext "goacs/acs/context"
 	"goacs/acs/types"
+	"goacs/lib/cache"
 	"goacs/models/cpe"
 	"goacs/models/tasks"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	digest_auth_client "github.com/xinsnake/go-http-digest-auth-client"
 )
 
 const SessionLifetime = 300
@@ -180,11 +183,13 @@ func CreateEmptySession(sessionId string) *ACSSession {
 
 func DeleteSession(sessionId string) {
 	lock.Lock()
+
 	if session, ok := acsSessions[sessionId]; ok && session.Script != nil {
 		// A script suspended waiting for a CPE response that will now never be
 		// correlated to anything (the session is gone) - cancel it immediately
 		// rather than waiting for its own timeout, freeing the goroutine promptly.
 		session.Script.Cancel()
+		cache.Global.Forget(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, session.CPE.SerialNumber))
 	}
 	delete(acsSessions, sessionId)
 	lock.Unlock()

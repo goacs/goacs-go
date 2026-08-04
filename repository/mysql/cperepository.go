@@ -201,6 +201,7 @@ func (r *CPERepository) UpdateOrCreate(cpe *cpe.CPE) (result bool, cpeExist bool
 		cpeExist = false
 	} else {
 		cpe.UUID = dbCPE.UUID
+		cpe.Debug = dbCPE.Debug
 
 		fmt.Println("Updating CPE")
 		dialect := goqu.Dialect("mysql")

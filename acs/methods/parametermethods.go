@@ -2,6 +2,7 @@ package methods
 
 import (
 	"encoding/xml"
+	"fmt"
 	acscontext "goacs/acs/context"
 	"goacs/acs/http"
 	acsxml "goacs/acs/types"
@@ -22,6 +23,20 @@ type ParameterDecisions struct {
 	ReqRes *http.CPERequest
 }
 
+func (pd *ParameterDecisions) CpeEmptyResponseParser() {
+	if pd.ReqRes.Session.LookupOnly {
+		pd.ReqRes.Session.CurrentState = acsxml.GPNReq
+		task := tasks.NewCPETask(pd.ReqRes.Session.CPE.UUID)
+		task.AsGetParameterNames(pd.ReqRes.Session.CPE.Root + ".")
+		task.ParameterInfo = append(task.ParameterInfo, acsxml.ParameterInfo{
+			Name: pd.ReqRes.Session.CPE.Root + ".",
+			Done: false,
+		})
+		task.NextLevel = true
+		pd.ReqRes.Session.AddTask(task)
+	}
+}
+
 func (pd *ParameterDecisions) ParameterNamesRequest(path string, nextlevel bool) string {
 	pd.ReqRes.Session.CurrentState = acsxml.GPNReq
 	return pd.ReqRes.Envelope.GPNRequest(path, nextlevel)
@@ -37,10 +52,10 @@ func (pd *ParameterDecisions) CpeParameterNamesResponseParser() {
 	pd.ReqRes.Session.CPE.AddParametersInfo(gpnr.ParameterList)
 	pd.ReqRes.Session.GPNCount--
 
-	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	if !pd.ReqRes.Session.LookupOnly {
-		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
-	}
+	//cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+	//if !pd.ReqRes.Session.LookupOnly {
+	//	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
+	//}
 
 	nextLevelParams := pd.GetNextLevelParams(pd.ReqRes.Session.CPE.ParametersInfo)
 
@@ -148,12 +163,11 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
 	}
 
-	//log.Println(pd.CPERequest.Session.CPE.ParameterValues)
-	if pd.ReqRes.Session.LookupOnly {
-		// Read-only: the snapshot above already covers what "lookup" is for -
-		// no cpe_parameters write, no AddObj/DelObj diffing/mutation of the
-		// device below.
-	} else if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
+	fmt.Println("New in acs", pd.ReqRes.Session.IsNewInACS)
+	fmt.Println("prev state", pd.ReqRes.Session.PrevState)
+	fmt.Println("is boot", pd.ReqRes.Session.IsBoot)
+
+	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
 		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
 	} else if pd.ReqRes.Session.IsBoot {
 		if pd.ReqRes.Session.HasTaskOfType(acsxml.GPVReq) == false {
@@ -221,6 +235,7 @@ func (pd *ParameterDecisions) SetParameterValuesResponseParser() {
 }
 
 func (pd *ParameterDecisions) PrepareParametersToSend() {
+	fmt.Println("PrepareParametersToSend")
 	pd.ReqRes.Session.PrevState = acsxml.SPVReq
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
 	templateRepository := mysql.NewTemplateRepository(repository.GetConnection())

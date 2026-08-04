@@ -1,11 +1,13 @@
 package mysql
 
 import (
-	"github.com/doug-martin/goqu/v9"
-	"github.com/jmoiron/sqlx"
 	"goacs/models/cpe"
 	"goacs/models/log"
 	"goacs/repository"
+	"time"
+
+	"github.com/doug-martin/goqu/v9"
+	"github.com/jmoiron/sqlx"
 )
 
 type LogRepository struct {
@@ -67,6 +69,7 @@ func (r *LogRepository) Save(l *log.Log) error {
 	}
 
 	if repository.OnLogSaved != nil {
+		l.CreatedAt = time.Now()
 		repository.OnLogSaved(l)
 	}
 
