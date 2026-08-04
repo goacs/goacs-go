@@ -324,15 +324,17 @@ saveDevice()
 	t.Run("kick", func(t *testing.T) {
 		// The device's Connection Request listener requires Digest auth
 		// (goacs-client always protects it with the profile's
-		// ManagementServer.ConnectionRequestUsername/Password), and on a
-		// brand-new device's very first session goacs-go doesn't know those
-		// credentials yet - they only arrive via a full parameter walk, not
-		// Inform's own ParameterList. So kick()'s HTTP call gets challenged
-		// (401 + WWW-Authenticate: Digest) rather than reaching the
-		// callback. This checks what's actually verifiable here: that
-		// kick() made a real outbound call to the registered Connection
-		// Request URL at all - the full authenticated round-trip is a
-		// pre-existing credential-bootstrapping gap outside this test's scope.
+		// ManagementServer.ConnectionRequestUsername/Password). The seeded
+		// "init" provision (contrib/database/06_init_provision.sql) also
+		// matches this same BOOTSTRAP Inform, reads ManagementServer. -
+		// including those credentials - via its own curated
+		// getParameterValues() call, and (since provisions run in id order,
+		// repository/mysql/provisionrepository.go's GetAllWithRules, and
+		// "init" is seeded long before this test creates its own provision)
+		// completes before this test's kick()-only provision gets a turn. So
+		// by the time kick() fires, the ACS already knows the credentials and
+		// the Connection Request round-trip succeeds outright - no Digest
+		// challenge needed.
 		rule, profile, profilesDir, serial := scopedRule(t)
 		mustCreateProvision(t, client, harness.Provision{
 			Name:     "npkick_" + serial,
@@ -341,13 +343,18 @@ saveDevice()
 			Script:   []string{`kick()`},
 		})
 
+		mark := len(srv.Output())
 		runDevice(t, srv, harness.DeviceOpts{
 			Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP",
 			ConnRequest: true,
 		})
 
-		if !strings.Contains(srv.Output(), "401 Unauthorized") {
-			t.Fatalf("kick() should have made an outbound call to the CPE's Connection Request URL; server output:\n%s", srv.Output())
+		out := outputSince(srv, mark)
+		if !strings.Contains(out, "200 OK") {
+			t.Fatalf("kick() should have completed an authenticated Connection Request round-trip; server output:\n%s", out)
+		}
+		if strings.Contains(out, "401 Unauthorized") {
+			t.Fatalf("kick()'s Connection Request should not need a Digest challenge - credentials are already known from the init provision's own curated read; server output:\n%s", out)
 		}
 	})
 
