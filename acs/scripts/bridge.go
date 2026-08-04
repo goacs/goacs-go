@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	acshttp "goacs/acs/http"
+	"goacs/acs/methods"
 	acsxml "goacs/acs/types"
 	"goacs/repository"
 	"goacs/repository/mysql"
@@ -374,9 +375,13 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 
 	// getParameterValues issues a real GetParameterValues RPC to the CPE and blocks
 	// for its reply, unlike getParameterValue (functions.go) which only ever reads the
-	// session's local cache/DB. Every value returned is also written into the local
-	// cache so it's immediately visible to getParameterValue/parameterExist for the
-	// rest of the script.
+	// session's local cache/DB. Every value returned is merged into the session's local
+	// cache and persisted the same way the ordinary GetParameterValues walk does
+	// (methods.ParameterDecisions.PersistFetchedParameterValues, shared with
+	// GetParameterValuesResponseParser) - this dispatch bypasses that normal
+	// switch-based path entirely (acs/logic/dispatcher.go's session.Script != nil
+	// branch), so without this call the values would only ever live in memory for the
+	// rest of this session.
 	L.SetGlobal("getParameterValues", L.NewFunction(func(L *lua.LState) int {
 		n := L.GetTop()
 		if n == 0 {
@@ -401,9 +406,10 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 			return 0
 		}
 
+		(&methods.ParameterDecisions{ReqRes: bc.reqRes}).PersistFetchedParameterValues(result.getParameterValues.ParameterList)
+
 		tbl := L.NewTable()
 		for _, parameter := range result.getParameterValues.ParameterList {
-			bc.reqRes.Session.CPE.AddParameter(parameter)
 			L.SetField(tbl, parameter.Name, lua.LString(parameter.ValueStruct.Value))
 		}
 		L.Push(tbl)

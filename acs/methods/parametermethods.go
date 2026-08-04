@@ -148,29 +148,22 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 	var gpvr acsxml.GetParameterValuesResponse
 	_ = xml.Unmarshal(pd.ReqRes.Body, &gpvr)
 	log.Println("GetParameterValuesResponseParser")
-	pd.ReqRes.Session.CPE.AddParameterValues(gpvr.ParameterList)
-	pd.ReqRes.Session.FillCPESessionBaseInfo(gpvr.ParameterList)
-	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_, _, _ = cpeRepository.UpdateOrCreate(&pd.ReqRes.Session.CPE)
 
+	pd.PersistFetchedParameterValues(gpvr.ParameterList)
 	pd.ReqRes.Session.GPVCount--
-
-	// On-demand lookup: if GET /api/device/:uuid/lookup armed this flag before
-	// kicking the device, snapshot the values it just returned into the cache
-	// so GET /api/device/:uuid/parameters/cached can serve them. One-shot via
-	// TTL expiry, same as goacs-php's Context (no explicit consume/forget).
-	if _, enabled := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, pd.ReqRes.Session.CPE.SerialNumber)); enabled {
-		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
-	}
 
 	fmt.Println("New in acs", pd.ReqRes.Session.IsNewInACS)
 	fmt.Println("prev state", pd.ReqRes.Session.PrevState)
 	fmt.Println("is boot", pd.ReqRes.Session.IsBoot)
 
 	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
-		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
-	} else if pd.ReqRes.Session.IsBoot {
+		// Already persisted by PersistFetchedParameterValues above.
+		return
+	}
+
+	if pd.ReqRes.Session.IsBoot {
 		if pd.ReqRes.Session.HasTaskOfType(acsxml.GPVReq) == false {
+			cpeRepository := mysql.NewCPERepository(repository.GetConnection())
 			cpeObjectParameters := pd.ReqRes.Session.CPE.GetObjectNamesToParameters()
 			dbObjectParameters := cpeRepository.GetCPEParametersWithFlag(&pd.ReqRes.Session.CPE, "A")
 
@@ -208,6 +201,45 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 		}
 	}
 
+}
+
+// PersistFetchedParameterValues merges a batch of parameter values just read from the
+// CPE into the session's in-memory tree and persists them (full bulk sync) when the
+// session is a brand-new device or fresh off an AddObject round-trip - the same
+// merge+persist logic the ordinary GetParameterValues walk uses above, shared here so a
+// Lua provisioning script's blocking getParameterValues() call
+// (acs/scripts/bridge.go) gets identical value persistence, since a suspended script
+// bypasses the normal switch-based dispatch in acs/logic/dispatcher.go entirely
+// (session.Script != nil short-circuits before the switch even runs, so
+// GetParameterValuesResponseParser above is never called for that round-trip).
+// Deliberately excludes the IsBoot AddObject/DeleteObject diffing above - a script
+// fetching values should not gain new task-queueing side effects.
+//
+// Guarded by repository.HasConnection() - like the sibling blocking setParameterValues
+// in acs/scripts/bridge.go - since this is now reachable from bridge_test.go's unit
+// tests, which exercise the Lua bridge without a real DB connection.
+func (pd *ParameterDecisions) PersistFetchedParameterValues(parameterList []acsxml.ParameterValueStruct) {
+	pd.ReqRes.Session.CPE.AddParameterValues(parameterList)
+	pd.ReqRes.Session.FillCPESessionBaseInfo(parameterList)
+
+	if !repository.HasConnection() {
+		return
+	}
+
+	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+	_, _, _ = cpeRepository.UpdateOrCreate(&pd.ReqRes.Session.CPE)
+
+	// On-demand lookup: if GET /api/device/:uuid/lookup armed this flag before
+	// kicking the device, snapshot the values it just returned into the cache
+	// so GET /api/device/:uuid/parameters/cached can serve them. One-shot via
+	// TTL expiry, same as goacs-php's Context (no explicit consume/forget).
+	if _, enabled := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, pd.ReqRes.Session.CPE.SerialNumber)); enabled {
+		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
+	}
+
+	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
+		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
+	}
 }
 
 // SetParameterValuesResponseParser handles the CPE's reply to a
