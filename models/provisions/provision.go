@@ -51,6 +51,8 @@ type Provision struct {
 	Events    string     `db:"events" json:"events"`
 	Requests  string     `db:"requests" json:"requests"`
 	Script    ScriptList `db:"script" json:"script"`
+	Priority  int        `db:"priority" json:"priority"`
+	Enabled   bool       `db:"enabled" json:"enabled"`
 	CreatedAt time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
 	DeletedAt null.Time  `db:"deleted_at" json:"deleted_at"`

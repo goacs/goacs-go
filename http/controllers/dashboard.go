@@ -1,17 +1,22 @@
 package controllers
 
 import (
-	"github.com/gin-gonic/gin"
 	"goacs/http/response"
 	"goacs/models/fault"
 	"goacs/repository"
 	"goacs/repository/mysql"
 	"log"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
+
+const OnlineHoursOffset = 6
 
 type dashboardResponse struct {
 	DevicesCount int64         `json:"devices_count"`
-	InformsCount int64         `json:"informs_count"`
+	OnlineCount  int64         `json:"online_count"`
+	OnlineOffset int64         `json:"online_offset"`
 	FaultsCount  int64         `json:"faults_count"`
 	Faults       []fault.Fault `json:"faults"`
 }
@@ -19,10 +24,10 @@ type dashboardResponse struct {
 func GetDashboardData(ctx *gin.Context) {
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
 	fRepository := mysql.NewFaultRepository()
-
 	responseData := dashboardResponse{
 		DevicesCount: cpeRepository.Count(),
-		InformsCount: 0,
+		OnlineCount:  cpeRepository.CountUpdatedAtAfter(time.Now().Add(-1 * OnlineHoursOffset * time.Hour)),
+		OnlineOffset: OnlineHoursOffset,
 		FaultsCount:  fRepository.CountLastDay(),
 		Faults:       fRepository.GetLastDay(100),
 	}

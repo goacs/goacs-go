@@ -20,10 +20,6 @@ export const useDeviceStore = defineStore('device', () => {
     await deviceApi.delete(uuid)
   }
 
-  async function kick(uuid: string) {
-    await deviceApi.kick(uuid)
-  }
-
   async function provisionNow(uuid: string) {
     await deviceApi.provision(uuid)
   }
@@ -36,5 +32,5 @@ export const useDeviceStore = defineStore('device', () => {
     await deviceApi.clearCache(uuid)
   }
 
-  return { currentDevice, loading, fetchDevice, deleteDevice, kick, provisionNow, lookupNow, clearCache }
+  return { currentDevice, loading, fetchDevice, deleteDevice, provisionNow, lookupNow, clearCache }
 })

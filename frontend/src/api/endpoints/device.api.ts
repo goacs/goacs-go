@@ -35,7 +35,6 @@ export const deviceApi = {
   get: (uuid: string) => unwrap<CPE>(http.get(`/device/${uuid}`)),
   delete: (uuid: string) => http.delete(`/device/${uuid}`),
 
-  kick: (uuid: string) => unwrap<string>(http.get(`/device/${uuid}/kick`)),
   provision: (uuid: string) => unwrap<string>(http.get(`/device/${uuid}/provision`)),
   lookup: (uuid: string) => unwrap<string>(http.get(`/device/${uuid}/lookup`)),
   clearCache: (uuid: string) => unwrap<string>(http.delete(`/device/${uuid}/cache`)),
@@ -91,4 +90,5 @@ export const deviceApi = {
     unwrapPaginated<LogEntry>(http.get(`/device/${uuid}/logs`, { params: paginatorParamsToQuery(params) })),
   downloadLogs: (uuid: string, sessionId: string) =>
     http.get(`/device/${uuid}/logs/download`, { params: { session_id: sessionId }, responseType: 'blob' }),
+  deleteLogs: (uuid: string) => unwrap<string>(http.delete(`/device/${uuid}/logs`)),
 }

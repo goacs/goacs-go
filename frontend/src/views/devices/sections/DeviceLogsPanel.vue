@@ -5,6 +5,7 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Panel from 'primevue/panel'
 import Tag from 'primevue/tag'
+import { useConfirm } from 'primevue/useconfirm'
 import dayjs from 'dayjs'
 import { useServerTable } from '@/composables/useServerTable'
 import { useDeviceLogsSocket } from '@/composables/useDeviceLogsSocket'
@@ -14,6 +15,7 @@ import type { LogEntry } from '@/api/types/log'
 import LogDetailsDialog from '@/components/device/LogDetailsDialog.vue'
 
 const props = defineProps<{ uuid: string }>()
+const confirm = useConfirm()
 
 const table = useServerTable<LogEntry>({ fetcher: (params) => deviceApi.getLogs(props.uuid, params), perPage: 10 })
 const selected = ref<LogEntry | null>(null)
@@ -44,11 +46,27 @@ function formatDate(value: string) {
   return dayjs(value).format('YYYY-MM-DD HH:mm:ss')
 }
 
+function confirmDeleteAll() {
+  confirm.require({
+    message: 'Delete all logs for this device? This cannot be undone.',
+    header: 'Confirm delete',
+    icon: 'pi pi-exclamation-triangle',
+    accept: async () => {
+      await deviceApi.deleteLogs(props.uuid)
+      await table.load()
+    },
+  })
+}
+
 onMounted(() => table.load())
 </script>
 
 <template>
-  <Panel header="Logs (live)">
+  <Panel header="Logs (live)" toggleable>
+    <template #icons>
+      <Button icon="pi pi-trash" text severity="danger" size="small" @click="confirmDeleteAll" />
+    </template>
+
     <DataTable
       :value="table.items.value"
       :loading="table.loading.value"

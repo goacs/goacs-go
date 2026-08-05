@@ -1,13 +1,15 @@
 package mysql
 
 import (
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
+	"fmt"
 	"goacs/models/cpe"
 	"goacs/models/fault"
 	"goacs/repository"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 type FaultRepository struct {
@@ -40,7 +42,11 @@ func (r *FaultRepository) SaveFault(cpe *cpe.CPE, code string, message string) {
 
 func (r *FaultRepository) GetLastDay(limit int) []fault.Fault {
 	faults := []fault.Fault{}
-	_ = r.db.Select(&faults, "SELECT * FROM faults WHERE created_at >= NOW() - INTERVAL 1 DAY LIMIT "+strconv.Itoa(limit))
+	err := r.db.Select(&faults, "SELECT faults.*, COALESCE(cpe.serial_number, '') as serial_number FROM faults LEFT JOIN cpe ON cpe.uuid = faults.cpe_uuid WHERE faults.created_at >= NOW() - INTERVAL 1 DAY LIMIT ?", strconv.Itoa(limit))
+	if err != nil {
+		fmt.Println(err)
+		return faults
+	}
 	return faults
 }
 

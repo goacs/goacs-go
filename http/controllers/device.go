@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	acscontext "goacs/acs/context"
 	acshttp "goacs/acs/http"
 	"goacs/acs/types"
@@ -20,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type UpdateDeviceTaskRequest struct {
@@ -546,19 +547,6 @@ func AddObject(ctx *gin.Context) {
 	acsRequest.AddObject(addObjectRequest.Name)
 }
 
-func Kick(ctx *gin.Context) {
-	cperepository := mysql.NewCPERepository(repository.GetConnection())
-	cpeModel, err := getCPEFromContext(ctx, cperepository)
-
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	kickCPE(cpeModel)
-	response.ResponseData(ctx, "")
-}
-
 // kickCPE issues a TR-069 Connection Request so the CPE opens a new CWMP
 // session against us on its own initiative - used directly by Kick, and as
 // the delivery mechanism for the "provision now" / "lookup now" actions
@@ -749,6 +737,22 @@ func GetDeviceLogs(ctx *gin.Context) {
 	logs, total := logRepository.ListForCPE(cpeModel.UUID, paginatorRequest)
 
 	response.ResponsePaginatior(ctx, repository.NewPaginatorResponse(paginatorRequest, total, logs))
+}
+
+func DeleteDeviceLogs(ctx *gin.Context) {
+	cperepository := mysql.NewCPERepository(repository.GetConnection())
+	cpeModel, err := getCPEFromContext(ctx, cperepository)
+	if err != nil {
+		return
+	}
+
+	logRepository := mysql.NewLogRepository(repository.GetConnection())
+	if err := logRepository.DeleteAllForCPE(cpeModel.UUID); err != nil {
+		response.Response500(ctx, "Cannot delete logs", "")
+		return
+	}
+
+	response.ResponseData(ctx, "")
 }
 
 func DownloadDeviceLogs(ctx *gin.Context) {

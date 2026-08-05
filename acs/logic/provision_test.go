@@ -48,6 +48,57 @@ func TestEventListMatches(t *testing.T) {
 	assert.False(t, eventListMatches([]string{"0 BOOTSTRAP"}, []string{"2 PERIODIC"}))
 }
 
+func TestMatches_DisabledSkipped(t *testing.T) {
+	matcher := &ProvisionMatcher{reqRes: &acshttp.CPERequest{Session: &acs.ACSSession{}}}
+
+	disabled := provisions.Provision{Enabled: false}
+	assert.False(t, matcher.matches(disabled, nil, "Inform"), "disabled provision must never match, even with empty event/request/rules")
+
+	enabled := provisions.Provision{Enabled: true}
+	assert.True(t, matcher.matches(enabled, nil, "Inform"), "sanity check: an otherwise-matching enabled provision does match")
+}
+
+// TestEvaluateProvisionMatch exercises the resolver-backed evaluator the /provision/simulate
+// endpoint uses (see http/controllers/provision.go), proving it shares the same enabled/
+// event/request/condition semantics as the live-session matcher above, just against a
+// caller-supplied resolve func instead of a CPE session.
+func TestEvaluateProvisionMatch(t *testing.T) {
+	p := provisions.Provision{
+		Enabled:  true,
+		Events:   "0 BOOTSTRAP",
+		Requests: "",
+		Rules: []provisions.ProvisionRule{
+			{Parameter: "DeviceInfo.SoftwareVersion", Operator: ">=", Value: "2.0"},
+		},
+	}
+	resolveKnown := func(parameter string) string {
+		if parameter == "DeviceInfo.SoftwareVersion" {
+			return "2.5"
+		}
+		return ""
+	}
+
+	eval := EvaluateProvisionMatch(p, []string{"0 BOOTSTRAP"}, "Inform", resolveKnown)
+	assert.True(t, eval.EventMatch)
+	assert.True(t, eval.RequestMatch, "empty configured Requests matches anything")
+	assert.True(t, eval.ConditionsMatch)
+	assert.True(t, eval.OverallMatch)
+	if assert.Len(t, eval.ConditionResults, 1) {
+		assert.Equal(t, "2.5", eval.ConditionResults[0].Actual)
+		assert.True(t, eval.ConditionResults[0].Passed)
+	}
+
+	disabled := p
+	disabled.Enabled = false
+	evalDisabled := EvaluateProvisionMatch(disabled, []string{"0 BOOTSTRAP"}, "Inform", resolveKnown)
+	assert.False(t, evalDisabled.OverallMatch, "disabled must short-circuit OverallMatch even when everything else matches")
+
+	resolveMissing := func(string) string { return "" }
+	evalMissing := EvaluateProvisionMatch(p, []string{"0 BOOTSTRAP"}, "Inform", resolveMissing)
+	assert.False(t, evalMissing.ConditionsMatch, "an unresolved/missing parameter must resolve to empty string and fail the numeric condition")
+	assert.Equal(t, "", evalMissing.ConditionResults[0].Actual)
+}
+
 func TestRequestListMatches(t *testing.T) {
 	assert.True(t, requestListMatches(nil, "Inform"), "empty configured list matches any request type")
 	assert.True(t, requestListMatches([]string{"Inform", "GetParameterValuesResponse"}, "Inform"))

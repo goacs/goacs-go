@@ -3,17 +3,18 @@ package mysql
 import (
 	"database/sql"
 	"fmt"
-	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/mysql"
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
-	"github.com/thoas/go-funk"
 	"goacs/acs/types"
 	"goacs/models/cpe"
 	"goacs/repository"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/mysql"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
+	"github.com/thoas/go-funk"
 )
 
 type CPERepository struct {
@@ -138,6 +139,15 @@ func (r *CPERepository) FindBySerial(serial string) (*cpe.CPE, error) {
 	}
 
 	return cpeInstance, nil
+}
+
+func (r *CPERepository) CountUpdatedAtAfter(after time.Time) (count int64) {
+	err := r.db.Unsafe().Get(&count, "SELECT COUNT(*) FROM cpe where updated_at >= ?", after)
+	if err != nil {
+		fmt.Println("Error while fetching query results")
+		return 0
+	}
+	return count
 }
 
 func (r *CPERepository) Create(cpe *cpe.CPE) (bool, error) {
