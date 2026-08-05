@@ -24,11 +24,11 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
     <div v-else-if="deviceStore.currentDevice" class="device-grid">
       <div class="device-grid__left">
         <DeviceInfoPanel :device="deviceStore.currentDevice" />
+        <DeviceSpeedtestPanel :uuid="props.uuid" />
       </div>
       <div class="device-grid__right">
         <DeviceQueuedTasksPanel :uuid="props.uuid" />
         <DeviceTemplatesPanel :uuid="props.uuid" />
-        <DeviceSpeedtestPanel :uuid="props.uuid" />
         <DeviceLogsPanel :uuid="props.uuid" />
       </div>
       <DeviceParameterListPanel :uuid="props.uuid" class="device-grid__full" />

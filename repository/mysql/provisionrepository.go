@@ -2,12 +2,14 @@ package mysql
 
 import (
 	"database/sql"
-	"github.com/doug-martin/goqu/v9"
-	"github.com/jmoiron/sqlx"
+	"fmt"
 	"goacs/models/provisions"
 	"goacs/repository"
 	"log"
 	"time"
+
+	"github.com/doug-martin/goqu/v9"
+	"github.com/jmoiron/sqlx"
 )
 
 type ProvisionRepository struct {
@@ -140,7 +142,10 @@ func (r *ProvisionRepository) List(request repository.PaginatorRequest) ([]provi
 	listSql, _, _ := listBuilder.ToSQL()
 
 	var rows []provisions.Provision
-	_ = r.db.Select(&rows, listSql)
+	err := r.db.Select(&rows, listSql)
+	if err != nil {
+		fmt.Println("List: provisions query error:", err)
+	}
 	_ = r.attachRules(rows)
 
 	return rows, total

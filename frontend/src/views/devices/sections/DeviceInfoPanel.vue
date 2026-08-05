@@ -9,6 +9,7 @@ import { useToast } from 'primevue/usetoast'
 import { useDeviceStore } from '@/stores/device.store'
 import { configApi } from '@/api/endpoints/config.api'
 import type { CPE } from '@/api/types/device'
+import dayjs from "dayjs";
 
 const props = defineProps<{ device: CPE }>()
 const router = useRouter()
@@ -63,6 +64,10 @@ async function toggleDebug(value: boolean) {
     'Debug flag updated',
   )
 }
+
+function formatDate(value: string) {
+  return dayjs(value).format('YYYY-MM-DD HH:mm:ss')
+}
 </script>
 
 <template>
@@ -76,10 +81,10 @@ async function toggleDebug(value: boolean) {
       <dd>{{ device.software_version }}</dd>
       <dt>Hardware version</dt>
       <dd>{{ device.hardware_version }}</dd>
-      <dt>IP address</dt>
-      <dd>{{ device.ip_address?.IP || '-' }}</dd>
-      <dt>Last update</dt>
-      <dd>{{ device.updated_at }}</dd>
+      <dt>Connection Request URL</dt>
+      <dd>{{ device.connection_request_url }}</dd>
+      <dt>Last inform</dt>
+      <dd>{{ formatDate(device.updated_at) }}</dd>
     </dl>
 
     <div class="actions">
@@ -106,17 +111,7 @@ async function toggleDebug(value: boolean) {
         :loading="busy === 'cache'"
         @click="run('cache', () => deviceStore.clearCache(device.uuid), 'Cache cleared')"
       />
-      <Button
-        label="Kick"
-        icon="pi pi-send"
-        size="small"
-        severity="secondary"
-        :loading="busy === 'kick'"
-        @click="run('kick', () => deviceStore.kick(device.uuid), 'Kick sent')"
-      />
-      <router-link :to="{ name: 'devices-cached-params', params: { uuid: device.uuid } }">
-        <Button label="Cached parameters" icon="pi pi-database" size="small" severity="secondary" />
-      </router-link>
+
       <Button label="Delete" icon="pi pi-trash" size="small" severity="danger" @click="confirmDelete" />
     </div>
 

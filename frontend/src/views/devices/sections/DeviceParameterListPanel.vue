@@ -16,6 +16,7 @@ import ParameterDialog from '@/components/device/ParameterDialog.vue'
 
 const props = defineProps<{ uuid: string }>()
 const confirm = useConfirm()
+const hasCachedParameters = ref(false)
 
 const table = useServerTable<Parameter>({
   fetcher: (params) => deviceApi.getParameters(props.uuid, params),
@@ -52,12 +53,19 @@ function confirmDelete(parameter: Parameter) {
   })
 }
 
-onMounted(() => table.load())
+onMounted(async () => {
+  table.load()
+  const cached = await deviceApi.getCachedParameters(props.uuid, { page: 1, per_page: 1 })
+  hasCachedParameters.value = cached.total > 0
+})
 </script>
 
 <template>
   <Panel header="Parameters" toggleable>
     <template #icons>
+      <router-link v-if="hasCachedParameters" :to="{ name: 'devices-cached-params', params: { uuid: props.uuid } }">
+        <Button icon="pi pi-database" text size="small" severity="secondary" />
+      </router-link>
       <Button icon="pi pi-plus" text size="small" @click="openCreate" />
     </template>
 

@@ -1,10 +1,11 @@
 package http
 
 import (
-	"github.com/gin-gonic/gin"
 	"goacs/http/controllers"
 	"goacs/http/middleware/jwt"
 	"goacs/lib"
+
+	"github.com/gin-gonic/gin"
 )
 
 func RegisterApiRoutes(gin *gin.Engine) {
@@ -40,7 +41,6 @@ func RegisterApiRoutes(gin *gin.Engine) {
 		apiGroup.GET("/device", controllers.GetDevicesList)
 		apiGroup.GET("/device/:uuid", controllers.GetDevice)
 		apiGroup.DELETE("/device/:uuid", controllers.DeleteDevice)
-		apiGroup.GET("/device/:uuid/kick", controllers.Kick)
 		apiGroup.GET("/device/:uuid/provision", controllers.GetDeviceProvision)
 		apiGroup.GET("/device/:uuid/lookup", controllers.GetDeviceLookup)
 		apiGroup.DELETE("/device/:uuid/cache", controllers.ClearDeviceCache)
@@ -49,6 +49,7 @@ func RegisterApiRoutes(gin *gin.Engine) {
 		apiGroup.PATCH("/device/:uuid/parameters/patch", controllers.PatchDeviceParameters)
 		apiGroup.GET("/device/:uuid/logs/download", controllers.DownloadDeviceLogs)
 		apiGroup.GET("/device/:uuid/logs", controllers.GetDeviceLogs)
+		apiGroup.DELETE("/device/:uuid/logs", controllers.DeleteDeviceLogs)
 		apiGroup.GET("/device/:uuid/parameters", controllers.GetDeviceParameters)
 		apiGroup.POST("/device/:uuid/parameters", controllers.CreateParameter)
 		apiGroup.PUT("/device/:uuid/parameters", controllers.UpdateParameter)

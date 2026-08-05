@@ -33,10 +33,10 @@ function formatDate(value: string) {
     <div class="tiles">
       <StatTile label="Devices" icon="pi pi-desktop" :value="dashboardStore.data?.devices_count ?? 0" />
       <StatTile
-        label="Informs (24h)"
+        :label="`Online (${dashboardStore.data?.online_offset}h)`"
         icon="pi pi-refresh"
         severity="success"
-        :value="dashboardStore.data?.informs_count ?? 0"
+        :value="dashboardStore.data?.online_count ?? 0"
       />
       <StatTile
         label="Faults (24h)"
@@ -48,7 +48,13 @@ function formatDate(value: string) {
 
     <h2>Recent faults</h2>
     <DataTable :value="dashboardStore.data?.faults ?? []" :loading="dashboardStore.loading" size="small">
-      <Column field="cpe_uuid" header="Device" />
+      <Column field="serial_number" header="Device">
+        <template #body="{data}">
+          <router-link :to="{name: 'devices-view', params: { uuid: data.cpe_uuid } }">
+            {{ data.serial_number }}
+          </router-link>
+        </template>
+      </Column>
       <Column field="code" header="Code" />
       <Column field="message" header="Message" />
       <Column header="When">

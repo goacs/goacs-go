@@ -106,6 +106,17 @@ func (r *LogRepository) ListFaults(request repository.PaginatorRequest) ([]log.L
 	return r.paginate(baseBuilder, request, true)
 }
 
+func (r *LogRepository) DeleteAllForCPE(cpeUUID string) error {
+	dialect := goqu.Dialect("mysql")
+
+	query, args, _ := dialect.Delete("logs").Prepared(true).
+		Where(goqu.C("cpe_uuid").Eq(cpeUUID)).
+		ToSQL()
+
+	_, err := r.db.Exec(query, args...)
+	return err
+}
+
 func (r *LogRepository) GetForSession(cpeUUID, sessionId string) []log.Log {
 	var logs []log.Log
 	dialect := goqu.Dialect("mysql")
