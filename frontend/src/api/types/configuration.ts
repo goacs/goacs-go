@@ -13,6 +13,8 @@ export interface Provision {
   requests: string
   script: string[]
   rules: ProvisionRule[] | null
+  priority: number
+  enabled: boolean
   created_at: string
   updated_at: string
 }
@@ -44,3 +46,39 @@ export const CWMP_REQUESTS = [
 ]
 
 export const RULE_OPERATORS = ['>', '>=', '<', '<=', '==', '!=', 'in', 'not in']
+
+export interface ProvisionSimulateParam {
+  key: string
+  value: string
+}
+
+export interface ProvisionSimulateRequest {
+  event: string
+  request: string
+  root: string
+  params: ProvisionSimulateParam[]
+}
+
+export interface ProvisionSimulateConditionResult {
+  parameter: string
+  operator: string
+  value: string
+  actual: string
+  passed: boolean
+}
+
+// Matches http/controllers/provision.go's ProvisionSimulateResult. Computed
+// server-side by acs/logic.EvaluateProvisionMatch - the same function the real
+// ProvisionMatcher uses - so the simulator can't drift from production matching.
+export interface ProvisionSimulateResult {
+  provision_id: number
+  name: string
+  priority: number
+  enabled: boolean
+  script_count: number
+  event_match: boolean
+  request_match: boolean
+  condition_results: ProvisionSimulateConditionResult[]
+  conditions_match: boolean
+  overall_match: boolean
+}

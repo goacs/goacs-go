@@ -88,6 +88,14 @@ func RegisterApiRoutes(gin *gin.Engine) {
 		apiGroup.POST("/provision/:provision", controllers.UpdateProvision)
 		apiGroup.DELETE("/provision/:provision", controllers.DeleteProvision)
 		apiGroup.GET("/provision/:provision/clone", controllers.CloneProvision)
+		apiGroup.PATCH("/provision/:provision/enabled", controllers.UpdateProvisionEnabled)
+		apiGroup.PATCH("/provision", controllers.ReorderProvisions)
+		// PUT (not POST) is deliberate: POST's method tree already has a wildcard
+		// registered at /provision/:provision (UpdateProvision), and this gin version's
+		// router panics on a static sibling ("simulate") next to an existing wildcard at
+		// the same path segment - same class of conflict the reorder endpoint above
+		// avoided by using the bare /provision path instead of /provision/reorder.
+		apiGroup.PUT("/provision/simulate", controllers.SimulateProvisions)
 
 		apiGroup.GET("/faults", controllers.GetFaults)
 		apiGroup.GET("/faults/today", controllers.GetTodayFaults)

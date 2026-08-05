@@ -276,6 +276,25 @@ func TestProvisionMatching(t *testing.T) {
 		}
 	})
 
+	t.Run("disabled_provision_is_never_queued_even_when_everything_else_matches", func(t *testing.T) {
+		rule, profile, profilesDir, serial := scopedRule(t)
+		marker := fmt.Sprintf("[script:%s] disabled_marker: hit", serial)
+		p := mustCreateProvision(t, client, harness.Provision{
+			Name:     "disabled_" + serial,
+			Events:   "0 BOOTSTRAP",
+			Requests: "inform",
+			Rules:    []harness.ProvisionRule{rule},
+			Script:   []string{`log("disabled_marker", "hit")`},
+		})
+		client.SetProvisionEnabled(t, p.Id, false)
+
+		mark := len(srv.Output())
+		runDevice(t, srv, harness.DeviceOpts{Profile: profile, ProfilesDir: profilesDir, Serial: serial, Event: "0 BOOTSTRAP"})
+		if strings.Contains(outputSince(srv, mark), marker) {
+			t.Fatalf("a disabled provision must never queue its scripts, even when event/request/rules all match")
+		}
+	})
+
 	t.Run("device_root_prefix_resolves_on_both_TR098_and_TR181_roots", func(t *testing.T) {
 		rule := harness.ProvisionRule{Parameter: "device.root.DeviceInfo.SoftwareVersion", Operator: ">=", Value: "2.0"}
 

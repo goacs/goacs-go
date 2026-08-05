@@ -48,13 +48,61 @@ func (m *ProvisionMatcher) QueueTasks(eventCodes []string, requestType string) e
 }
 
 func (m *ProvisionMatcher) matches(p provisions.Provision, eventCodes []string, requestType string) bool {
-	if !eventListMatches(p.EventsList(), eventCodes) {
+	if !p.Enabled {
 		return false
 	}
-	if !requestListMatches(p.RequestsList(), requestType) {
-		return false
+	return EvaluateProvisionMatch(p, eventCodes, requestType, m.resolveLiveParameter).OverallMatch
+}
+
+// ConditionEvaluation is the per-rule result of evaluating a ProvisionRule against a
+// resolved parameter value.
+type ConditionEvaluation struct {
+	Rule   provisions.ProvisionRule
+	Actual string
+	Passed bool
+}
+
+// MatchEvaluation is the full detail of matching one provision against a trigger, not
+// just the pass/fail bool QueueTasks needs internally - used by the simulator to show
+// which parts of a provision matched or not.
+type MatchEvaluation struct {
+	Provision        provisions.Provision
+	EventMatch       bool
+	RequestMatch     bool
+	ConditionResults []ConditionEvaluation
+	ConditionsMatch  bool
+	OverallMatch     bool
+}
+
+// EvaluateProvisionMatch computes match details for one provision against the given
+// trigger, resolving each rule's parameter value via resolve. This is the single
+// implementation of the event/request/condition matching semantics - QueueTasks (via
+// matches/resolveLiveParameter) uses it against a live CPE session, and the
+// /provision/simulate endpoint (see http/controllers/provision.go) uses it against a
+// caller-supplied parameter map, so there is exactly one place to get this logic right.
+func EvaluateProvisionMatch(p provisions.Provision, eventCodes []string, requestType string, resolve func(string) string) MatchEvaluation {
+	eventMatch := eventListMatches(p.EventsList(), eventCodes)
+	requestMatch := requestListMatches(p.RequestsList(), requestType)
+
+	results := make([]ConditionEvaluation, len(p.Rules))
+	conditionsMatch := true
+	for i, rule := range p.Rules {
+		actual := resolve(rule.Parameter)
+		passed := provisionCondition(actual, rule.Value, rule.Operator)
+		results[i] = ConditionEvaluation{Rule: rule, Actual: actual, Passed: passed}
+		if !passed {
+			conditionsMatch = false
+		}
 	}
-	return m.evaluateRules(p.Rules)
+
+	return MatchEvaluation{
+		Provision:        p,
+		EventMatch:       eventMatch,
+		RequestMatch:     requestMatch,
+		ConditionResults: results,
+		ConditionsMatch:  conditionsMatch,
+		OverallMatch:     p.Enabled && eventMatch && requestMatch && conditionsMatch,
+	}
 }
 
 // eventListMatches: an empty configured list matches any event (same as an empty PHP
@@ -86,25 +134,20 @@ func requestListMatches(configured []string, requestType string) bool {
 	return false
 }
 
-// evaluateRules requires every rule on a provision to pass (logical AND), same as PHP.
-func (m *ProvisionMatcher) evaluateRules(rules []provisions.ProvisionRule) bool {
-	for _, rule := range rules {
-		if !m.evaluateRule(rule) {
-			return false
-		}
-	}
-	return true
+// evaluateRule resolves a rule's parameter value via the live session and checks it
+// against the rule - kept as a thin wrapper for existing direct-call sites/tests.
+func (m *ProvisionMatcher) evaluateRule(rule provisions.ProvisionRule) bool {
+	return provisionCondition(m.resolveLiveParameter(rule.Parameter), rule.Value, rule.Operator)
 }
 
-// evaluateRule resolves a "device.root." prefix in the rule's Parameter to the current
-// session's actual root (e.g. "InternetGatewayDevice." or "Device.") - the same prefix
-// Lua provisioning scripts use for the same purpose (see acs/scripts/README.md), so a
-// rule's Parameter and a script's parameter paths read the same way.
-func (m *ProvisionMatcher) evaluateRule(rule provisions.ProvisionRule) bool {
-	parameter := strings.Replace(rule.Parameter, "device.root.", m.reqRes.Session.CPE.Root+".", 1)
+// resolveLiveParameter resolves a "device.root." prefix in a rule's Parameter to the
+// current session's actual root (e.g. "InternetGatewayDevice." or "Device.") - the same
+// prefix Lua provisioning scripts use for the same purpose (see acs/scripts/README.md) -
+// then reads its value, preferring the value already loaded into this session (freshly
+// read from the CPE) and falling back to the last known value cached in the DB.
+func (m *ProvisionMatcher) resolveLiveParameter(parameter string) string {
+	parameter = strings.Replace(parameter, "device.root.", m.reqRes.Session.CPE.Root+".", 1)
 
-	// Prefer the value already loaded into this session (freshly read from the CPE);
-	// fall back to the last known value cached in the DB, same order PHP checks in.
 	value, err := m.reqRes.Session.CPE.GetParameterValue(parameter)
 	if err != nil {
 		cpeRepository := mysql.NewCPERepository(m.reqRes.DBConnection)
@@ -114,7 +157,7 @@ func (m *ProvisionMatcher) evaluateRule(rule provisions.ProvisionRule) bool {
 		}
 	}
 
-	return provisionCondition(value, rule.Value, rule.Operator)
+	return value
 }
 
 func provisionCondition(paramValue, ruleValue, operator string) bool {

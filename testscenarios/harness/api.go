@@ -68,6 +68,8 @@ type Provision struct {
 	Requests string          `json:"requests"`
 	Script   []string        `json:"script"`
 	Rules    []ProvisionRule `json:"rules"`
+	Priority int             `json:"priority"`
+	Enabled  bool            `json:"enabled"`
 }
 
 type Template struct {
@@ -217,6 +219,11 @@ func (c *Client) CreateProvision(t *testing.T, p Provision) Provision {
 func (c *Client) DeleteProvision(t *testing.T, id int64) {
 	t.Helper()
 	c.do(t, http.MethodDelete, fmt.Sprintf("/api/provision/%d", id), nil, nil)
+}
+
+func (c *Client) SetProvisionEnabled(t *testing.T, id int64, enabled bool) {
+	t.Helper()
+	c.do(t, http.MethodPatch, fmt.Sprintf("/api/provision/%d/enabled", id), map[string]bool{"enabled": enabled}, nil)
 }
 
 func (c *Client) ListProvisions(t *testing.T) []Provision {
