@@ -64,6 +64,19 @@ func (ACSRequest *ACSRequest) AddObject(param string) {
 
 }
 
+func (ACSRequest *ACSRequest) RunDiagnostics(parameters []types.ParameterValueStruct) {
+	taskrepository := mysql.NewTasksRepository(repository.GetConnection())
+	task := tasks.NewCPETask(ACSRequest.CPE.UUID)
+	task.Event = types.InformReq
+	task.AsDiagnostics(parameters)
+	taskrepository.AddTask(task)
+	err := ACSRequest.Send()
+
+	if err != nil {
+		log.Println("RunDiagnostics error", err.Error())
+	}
+}
+
 func (ACSRequest *ACSRequest) GetParameterValues(path string) {
 	ACSRequest.Session.NextJob = acs.JOB_GETPARAMETERNAMES
 	err := ACSRequest.Send()

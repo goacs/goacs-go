@@ -28,6 +28,17 @@ func (InformDecision *InformDecision) CpeInformRequestParser() {
 	log.Println("SESSION FROM InformReq", InformDecision.ReqRes.Session.IsNew, InformDecision.ReqRes.Session.ReadAllParameters)
 
 	InformDecision.ReqRes.Session.FillCPESessionFromInform(inform)
+
+	// TR-143 signals a DownloadDiagnostics/UploadDiagnostics run finishing via this event
+	// code - proactively re-read the result subtree so it lands in cpe_parameters without
+	// an operator having to poll. Purely additive: every other Inform is unaffected.
+	if hasEventCode(InformDecision.ReqRes.Session.CurrentEventCodes, diagnosticsCompleteEventCode) {
+		gpvTask := tasks.NewCPETask(InformDecision.ReqRes.Session.CPE.UUID)
+		gpvTask.Task = acsxml.GPVReq
+		gpvTask.ParameterInfo = diagnosticsResultParameterInfo(InformDecision.ReqRes.Session.CPE.Root)
+		InformDecision.ReqRes.Session.AddTask(gpvTask)
+	}
+
 	cpeRepository := mysql.NewCPERepository(InformDecision.ReqRes.DBConnection)
 	_, cpeExist, _ := cpeRepository.UpdateOrCreate(&InformDecision.ReqRes.Session.CPE)
 	InformDecision.ReqRes.Session.ReadAllParameters = !cpeExist

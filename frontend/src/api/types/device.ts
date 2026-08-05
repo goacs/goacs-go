@@ -64,3 +64,20 @@ export interface CPETemplate {
   name: string
   priority: number
 }
+
+// Mirrors Go's http/controllers.DiagnosticsResult - a computed TR-143 speedtest result,
+// only ever populated when DiagnosticsState is "Complete" and the CPE-reported EOMTime is
+// within the last 24h (enforced server-side, see GetDiagnosticsReport).
+export interface DiagnosticsResult {
+  state: string
+  bytes: number
+  start_time: string
+  end_time: string
+  duration_seconds: number
+  throughput_mbps: number
+}
+
+export interface DiagnosticsReport {
+  download: DiagnosticsResult | null
+  upload: DiagnosticsResult | null
+}

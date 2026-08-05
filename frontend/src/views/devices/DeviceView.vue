@@ -5,6 +5,7 @@ import { useDeviceStore } from '@/stores/device.store'
 import DeviceInfoPanel from './sections/DeviceInfoPanel.vue'
 import DeviceQueuedTasksPanel from './sections/DeviceQueuedTasksPanel.vue'
 import DeviceTemplatesPanel from './sections/DeviceTemplatesPanel.vue'
+import DeviceSpeedtestPanel from './sections/DeviceSpeedtestPanel.vue'
 import DeviceLogsPanel from './sections/DeviceLogsPanel.vue'
 import DeviceParameterListPanel from './sections/DeviceParameterListPanel.vue'
 
@@ -27,6 +28,7 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
       <div class="device-grid__right">
         <DeviceQueuedTasksPanel :uuid="props.uuid" />
         <DeviceTemplatesPanel :uuid="props.uuid" />
+        <DeviceSpeedtestPanel :uuid="props.uuid" />
         <DeviceLogsPanel :uuid="props.uuid" />
       </div>
       <DeviceParameterListPanel :uuid="props.uuid" class="device-grid__full" />
