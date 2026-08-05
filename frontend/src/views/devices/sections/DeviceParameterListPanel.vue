@@ -27,6 +27,7 @@ const table = useServerTable<Parameter>({
     flags: { value: '', matchMode: FilterMatchMode.CONTAINS },
     cached_value: { value: '', matchMode: FilterMatchMode.CONTAINS },
   },
+  perPage: 15,
 })
 const dialogVisible = ref(false)
 const editingParameter = ref<Parameter | null>(null)

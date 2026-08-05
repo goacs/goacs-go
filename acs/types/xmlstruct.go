@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/xml"
 	"errors"
-	"gopkg.in/guregu/null.v4"
 	"log"
 	"math/rand"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/guregu/null.v4"
 )
 
 type Envelope struct {
@@ -55,8 +56,8 @@ type PrioritizedParameters struct {
 	ParameterValueStruct
 }
 
-//TODO !!!!
-//Replace value, with struct to handle type
+// TODO !!!!
+// Replace value, with struct to handle type
 type ParameterValueStruct struct {
 	Name        string      `db:"name" json:"name"`
 	ValueStruct ValueStruct `json:"valuestruct"`
@@ -175,7 +176,30 @@ func GetParametersWithFlag(parametersToFilter []ParameterValueStruct, flag strin
 }
 
 func (envelope *Envelope) Type() string {
-	return strings.ToLower(envelope.Body.Message.XMLName.Local)
+	return strings.ToLower(envelope.RPCName())
+}
+
+// RPCName returns the raw (non-lowercased) local name of the SOAP Body's RPC
+// element, e.g. "Inform", "GetParameterValuesResponse", "SetParameterValues" -
+// used as the human-readable Log.Message for conversation log entries.
+func (envelope *Envelope) RPCName() string {
+	return envelope.Body.Message.XMLName.Local
+}
+
+// ParseRPCName unmarshals a raw SOAP envelope and returns its RPC element name,
+// "Empty" for a zero-length body (CWMP's "no more requests" signal - see
+// acsxml.EMPTY), or "" if the body is non-empty but not a well-formed envelope.
+func ParseRPCName(body []byte) string {
+	if len(body) == 0 {
+		return "Empty"
+	}
+
+	var envelope Envelope
+	if err := xml.Unmarshal(body, &envelope); err != nil {
+		return ""
+	}
+
+	return envelope.RPCName()
 }
 
 func (envelope *Envelope) InformResponse() string {
@@ -243,8 +267,9 @@ func (envelope *Envelope) GPNRequest(path string, nextlevel bool) string {
 </soapenv:Envelope>`
 }
 
-//TODO: zrobić ładniej ;)
-//      <cwmp:ID soapenv:mustUnderstand="1">` + envelope.Header.ID + `</cwmp:ID>
+// TODO: zrobić ładniej ;)
+//
+//	<cwmp:ID soapenv:mustUnderstand="1">` + envelope.Header.ID + `</cwmp:ID>
 func (envelope *Envelope) GPVRequest(info []ParameterInfo) string {
 	request := `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:cwmp="urn:dslforum-org:cwmp-1-0" xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

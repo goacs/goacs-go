@@ -42,6 +42,7 @@ func (r *CPERequest) logResponseConversation(body string) {
 	_ = logRepository.Save(&log.Log{
 		CPEUUID:   r.Session.CPE.UUID,
 		FullXML:   body,
+		Message:   acsxml.ParseRPCName([]byte(body)),
 		Type:      log.TypeInfo,
 		From:      log.FromACS,
 		SessionId: r.Session.Id,

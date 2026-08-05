@@ -95,6 +95,6 @@ onMounted(() => table.load())
       <template #empty>No logs yet.</template>
     </DataTable>
 
-    <LogDetailsDialog v-model:visible="detailsVisible" :entry="selected" />
+    <LogDetailsDialog v-model:visible="detailsVisible" :entry="selected" @download-session="download" />
   </Panel>
 </template>
