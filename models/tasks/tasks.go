@@ -28,6 +28,7 @@ const (
 	UploadFirmware           = "UploadFirmware"
 	AddObject                = "AddObject"
 	DeleteObject             = "DeleteObject"
+	RunDiagnostics           = "RunDiagnostics"
 )
 
 type TaskPayload map[string]interface{}
@@ -112,6 +113,25 @@ func (task *Task) AsGetParameterNames(path string) {
 	task.Payload = TaskPayload{
 		"path": path,
 	}
+}
+
+// AsDiagnostics queues an explicit SetParameterValues carrying exactly these values
+// (e.g. a TR-143 DownloadDiagnostics/UploadDiagnostics trigger), bypassing the normal
+// CPE.GetChangedParametersToWrite diff (see acs/queue.SetParameterValuesTask.ToRequest)
+// which only pushes parameters the CPE has already reported at least once. Stored as
+// plain string maps, not types.ParameterValueStruct, since Payload round-trips through
+// the JSON `payload` DB column and back (Task.ParameterValues does not - json:"-").
+func (task *Task) AsDiagnostics(parameters []types.ParameterValueStruct) {
+	task.Task = RunDiagnostics
+	values := make([]map[string]string, 0, len(parameters))
+	for _, p := range parameters {
+		values = append(values, map[string]string{
+			"name":  p.Name,
+			"value": p.ValueStruct.Value,
+			"type":  p.ValueStruct.Type,
+		})
+	}
+	task.Payload = TaskPayload{"parameters": values}
 }
 
 func (i *TaskPayload) Value() (driver.Value, error) {

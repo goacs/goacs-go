@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	acshttp "goacs/acs/http"
+	"goacs/acs/methods"
 	acsxml "goacs/acs/types"
 	"goacs/repository"
 	"goacs/repository/mysql"
@@ -70,6 +71,7 @@ type pendingCall struct {
 type rpcResult struct {
 	addObject          *acsxml.AddObjectResponseStruct
 	deleteObject       *acsxml.DeleteObjectResponseStruct
+	getParameterNames  *acsxml.GetParameterNamesResponse
 	getParameterValues *acsxml.GetParameterValuesResponse
 	setParameterValues *acsxml.SetParameterValuesResponseStruct
 	fault              *acsxml.Fault
@@ -281,6 +283,16 @@ func matchResponse(kind string, reqRes *acshttp.CPERequest) rpcResult {
 		}
 		return rpcResult{}
 
+	case "GetParameterNames":
+		if reqRes.ReqType != acsxml.GPNResp {
+			return rpcResult{err: protocolViolation(kind, reqRes.ReqType)}
+		}
+		var v acsxml.GetParameterNamesResponse
+		if err := xml.Unmarshal(reqRes.Body, &v); err != nil {
+			return rpcResult{err: err}
+		}
+		return rpcResult{getParameterNames: &v}
+
 	case "GetParameterValues":
 		if reqRes.ReqType != acsxml.GPVResp {
 			return rpcResult{err: protocolViolation(kind, reqRes.ReqType)}
@@ -374,9 +386,20 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 
 	// getParameterValues issues a real GetParameterValues RPC to the CPE and blocks
 	// for its reply, unlike getParameterValue (functions.go) which only ever reads the
-	// session's local cache/DB. Every value returned is also written into the local
-	// cache so it's immediately visible to getParameterValue/parameterExist for the
-	// rest of the script.
+	// session's local cache/DB. Before that, it issues one blocking GetParameterNames
+	// RPC per requested path (NextLevel=false, so a dot-terminated branch path is
+	// resolved the same recursive way GetParameterValues itself would read it) unless
+	// this session already knows that path's Writable flag - otherwise every fetched
+	// parameter would come back Flag.Write=false forever, since AddParameter only ever
+	// learns Writable from a GetParameterNames response (models/cpe/cpe.go's
+	// GetParameterInfoByName), which a blocking getParameterValues() call never
+	// triggered before this. Every value returned is merged into the session's local
+	// cache and persisted the same way the ordinary GetParameterValues walk does
+	// (methods.ParameterDecisions.PersistFetchedParameterValues, shared with
+	// GetParameterValuesResponseParser) - this dispatch bypasses that normal
+	// switch-based path entirely (acs/logic/dispatcher.go's session.Script != nil
+	// branch), so without this call the values would only ever live in memory for the
+	// rest of this session.
 	L.SetGlobal("getParameterValues", L.NewFunction(func(L *lua.LState) int {
 		n := L.GetTop()
 		if n == 0 {
@@ -387,6 +410,25 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 		infos := make([]acsxml.ParameterInfo, n)
 		for i := 1; i <= n; i++ {
 			infos[i-1] = acsxml.ParameterInfo{Name: L.CheckString(i)}
+		}
+
+		for _, info := range infos {
+			if _, err := bc.reqRes.Session.CPE.GetParameterInfoByName(info.Name); err == nil {
+				continue // already known this session - don't re-issue the RPC
+			}
+
+			gpnResult, err := bc.call("GetParameterNames", func(reqRes *acshttp.CPERequest) string {
+				return reqRes.Envelope.GPNRequest(info.Name, false)
+			})
+			if err != nil {
+				L.RaiseError("getParameterValues(): GetParameterNames(%s): %v", info.Name, err)
+				return 0
+			}
+			if gpnResult.fault != nil {
+				L.RaiseError("getParameterValues(): CPE fault %s: %s", gpnResult.fault.DetailFaultCode, gpnResult.fault.DetailFaultString)
+				return 0
+			}
+			bc.reqRes.Session.CPE.AddParametersInfo(gpnResult.getParameterNames.ParameterList)
 		}
 
 		result, err := bc.call("GetParameterValues", func(reqRes *acshttp.CPERequest) string {
@@ -401,9 +443,10 @@ func registerBlockingFunctions(L *lua.LState, bc *bridgeContext) {
 			return 0
 		}
 
+		(&methods.ParameterDecisions{ReqRes: bc.reqRes}).PersistFetchedParameterValues(result.getParameterValues.ParameterList)
+
 		tbl := L.NewTable()
 		for _, parameter := range result.getParameterValues.ParameterList {
-			bc.reqRes.Session.CPE.AddParameter(parameter)
 			L.SetField(tbl, parameter.Name, lua.LString(parameter.ValueStruct.Value))
 		}
 		L.Push(tbl)

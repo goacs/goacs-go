@@ -39,6 +39,10 @@ type ParameterValue struct {
 	Name        string      `json:"name"`
 	ValueStruct ValueStruct `json:"valuestruct"`
 	Flag        Flag        `json:"flag"`
+	// CachedValue is only ever populated by GetDeviceParameters (the main
+	// parameter list) - the value most recently read from the device via
+	// "lookup now", when this name is still present in that cache snapshot.
+	CachedValue *string `json:"cached_value"`
 }
 
 type CPE struct {
@@ -400,6 +404,25 @@ func (c *Client) GetDeviceTemplates(t *testing.T, cpeUUID string) []struct {
 func (c *Client) TriggerProvisionNow(t *testing.T, cpeUUID string) {
 	t.Helper()
 	c.do(t, http.MethodGet, fmt.Sprintf("/api/device/%s/provision", cpeUUID), nil, nil)
+}
+
+// TriggerLookupNow forces the device's next Inform into a full, read-only
+// GetParameterNames/GetParameterValues walk (Session.LookupOnly - no write to
+// cpe_parameters, no AddObj/DelObj), then issues a Connection Request so that
+// happens immediately (see http/controllers/device.go GetDeviceLookup). The
+// result is only ever readable via GetDeviceCachedParameters below.
+func (c *Client) TriggerLookupNow(t *testing.T, cpeUUID string) {
+	t.Helper()
+	c.do(t, http.MethodGet, fmt.Sprintf("/api/device/%s/lookup", cpeUUID), nil, nil)
+}
+
+// GetDeviceCachedParameters reads back the snapshot TriggerLookupNow's walk
+// left in the LookupParamsPrefix cache entry (GET /api/device/:uuid/parameters/cached).
+func (c *Client) GetDeviceCachedParameters(t *testing.T, cpeUUID string) []ParameterValue {
+	t.Helper()
+	var params []ParameterValue
+	c.doPaginated(t, http.MethodGet, fmt.Sprintf("/api/device/%s/parameters/cached?per_page=10000", cpeUUID), &params)
+	return params
 }
 
 func (c *Client) Kick(t *testing.T, cpeUUID string) {

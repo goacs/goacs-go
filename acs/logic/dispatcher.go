@@ -52,8 +52,6 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 
 	acs.AddCookieToResponseWriter(reqRes.Session, reqRes.Response)
 
-	logConversation(&reqRes, log.FromDevice, buffer)
-
 	if session.Script != nil {
 		// A script is suspended waiting for the CPE's reply to a blocking RPC
 		// (addObject, reboot, ...) - this round-trip belongs to it, regardless of
@@ -64,6 +62,7 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 			stdlog.Println("script resume error:", err)
 			scripts.LogScriptError(&reqRes, err)
 		}
+		logConversation(&reqRes, log.FromDevice, buffer)
 		if !finished {
 			return
 		}
@@ -89,8 +88,13 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 
 	case acsxml.EMPTY:
 		stdlog.Println("EMPTY RESPONSE")
-		if len(session.Tasks) == 0 {
-			acs.DeleteSession(session.Id)
+		parameterDecisions := methods.ParameterDecisions{ReqRes: &reqRes}
+		parameterDecisions.CpeEmptyResponseParser()
+
+		if !session.LookupOnly {
+			if err := NewProvisionMatcher(&reqRes).QueueTasks(session.CurrentEventCodes, acsxml.EMPTY); err != nil {
+				stdlog.Println("provision matcher error (Empty):", err)
+			}
 		}
 
 	case acsxml.GPNResp:
@@ -121,6 +125,7 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 	case acsxml.TransferComplete:
 		stdlog.Println("TransferComplete")
 		stdlog.Println(string(reqRes.Body))
+		logConversation(&reqRes, log.FromDevice, buffer)
 		reqRes.SendResponse(reqRes.Envelope.TransferCompleteResponse())
 		return
 
@@ -138,7 +143,17 @@ func HandleCPERequest(request *http.Request, w http.ResponseWriter) {
 		fmt.Println("UNSUPPORTED REQTYPE ", reqType)
 	}
 
+	logConversation(&reqRes, log.FromDevice, buffer)
+
 	NewTaskRunner(&reqRes, reqType).Run()
+	//
+	//if len(session.Tasks) == 0 {
+	//	fmt.Println("Ending session")
+	//	logConversation(&reqRes, log.FromDevice, buffer)
+	//	reqRes.SendResponse("")
+	//	acs.DeleteSession(session.Id)
+	//	return
+	//}
 }
 
 // logConversation persists the raw CWMP XML exchange when enabled (globally via

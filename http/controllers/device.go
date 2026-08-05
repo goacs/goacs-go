@@ -31,6 +31,7 @@ type UpdateDeviceTaskRequest struct {
 type ParameterRequest struct {
 	Name  string     `json:"name" validate:"required"`
 	Value string     `json:"value"`
+	Type  string     `json:"type"`
 	Flag  types.Flag `json:"flag" validate:"required"`
 }
 
@@ -80,15 +81,100 @@ func DeleteDevice(ctx *gin.Context) {
 
 }
 
+// ParameterWithCachedValue augments a stored parameter with the value most
+// recently read from the device via "lookup now" (LookupParamsPrefix,
+// populated by acs/methods/parametermethods.go), when that snapshot still
+// exists and still contains this parameter's name - nil otherwise (never
+// looked up, or the snapshot already expired). Lets the admin panel compare
+// what's stored in cpe_parameters against what the device actually reports
+// right now. Response-only: never persisted, never used outside
+// GetDeviceParameters.
+type ParameterWithCachedValue struct {
+	types.ParameterValueStruct
+	CachedValue *string `json:"cached_value"`
+}
+
 func GetDeviceParameters(ctx *gin.Context) {
 	paginatorRequest := repository.PaginatorRequestFromContext(ctx)
 	cperepository := mysql.NewCPERepository(repository.GetConnection())
 	cpeModel, err := getCPEFromContext(ctx, cperepository)
-	if err == nil {
-		parameters, total := cperepository.ListCPEParameters(cpeModel, paginatorRequest)
-		responseData := repository.NewPaginatorResponse(paginatorRequest, total, parameters)
-		response.ResponsePaginatior(ctx, responseData)
+	if err != nil {
+		return
 	}
+
+	// cached_value isn't a cpe_parameters column - it comes from the in-memory
+	// lookup cache, merged in afterward by withCachedValue - so it can't be
+	// pushed down into the SQL filter/pagination like the other columns. When
+	// requested, fetch every row matching the remaining filters unpaginated,
+	// enrich, filter by cached_value in Go, then page the result ourselves.
+	if cachedValueFilter, ok := paginatorRequest.Filter["cached_value"]; ok {
+		remainingFilter := make(map[string]string, len(paginatorRequest.Filter))
+		for key, value := range paginatorRequest.Filter {
+			if key != "cached_value" {
+				remainingFilter[key] = value
+			}
+		}
+
+		parameters := cperepository.FilterCPEParameters(cpeModel, remainingFilter)
+		filtered := filterByCachedValue(withCachedValue(cpeModel, parameters), cachedValueFilter)
+
+		start := paginatorRequest.CalcOffset()
+		end := start + paginatorRequest.PerPage
+		if start > len(filtered) {
+			start = len(filtered)
+		}
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+
+		response.ResponsePaginatior(ctx, repository.NewPaginatorResponse(paginatorRequest, len(filtered), filtered[start:end]))
+		return
+	}
+
+	parameters, total := cperepository.ListCPEParameters(cpeModel, paginatorRequest)
+	responseData := repository.NewPaginatorResponse(paginatorRequest, total, withCachedValue(cpeModel, parameters))
+	response.ResponsePaginatior(ctx, responseData)
+}
+
+func filterByCachedValue(parameters []ParameterWithCachedValue, filter string) []ParameterWithCachedValue {
+	filtered := make([]ParameterWithCachedValue, 0, len(parameters))
+	for _, p := range parameters {
+		if p.CachedValue != nil && strings.Contains(*p.CachedValue, filter) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
+// withCachedValue enriches each DB-stored parameter with the value from the
+// device's current "lookup now" cache snapshot, when that snapshot exists
+// and still contains the parameter's name. The DB rows themselves (and their
+// count/pagination) are untouched - a parameter that only exists in the
+// cache, never read into cpe_parameters, is never added here; see
+// GetDeviceCachedParameters for that.
+func withCachedValue(cpeModel *cpe.CPE, parameters []types.ParameterValueStruct) []ParameterWithCachedValue {
+	result := make([]ParameterWithCachedValue, len(parameters))
+	for i, p := range parameters {
+		result[i] = ParameterWithCachedValue{ParameterValueStruct: p}
+	}
+
+	cached, ok := cachedParametersFor(cpeModel)
+	if !ok {
+		return result
+	}
+
+	cachedValues := make(map[string]string, len(cached))
+	for _, p := range cached {
+		cachedValues[p.Name] = p.ValueStruct.Value
+	}
+
+	for i := range result {
+		if value, found := cachedValues[result[i].Name]; found {
+			result[i].CachedValue = &value
+		}
+	}
+
+	return result
 }
 
 func GetDeviceTemplates(ctx *gin.Context) {
@@ -257,7 +343,7 @@ func parameterBaseRequest(ctx *gin.Context) types.ParameterValueStruct {
 		Name: parameterRequest.Name,
 		ValueStruct: types.ValueStruct{
 			Value: parameterRequest.Value,
-			Type:  "",
+			Type:  parameterRequest.Type,
 		},
 		Flag: parameterRequest.Flag,
 	}
@@ -482,10 +568,12 @@ func kickCPE(cpeModel *cpe.CPE) {
 	acsRequest.Kick()
 }
 
-// GetDeviceProvision forces the device's next Inform to run a full
-// GetParameterNames/GetParameterValues walk (as if it had just booted), then
-// kicks it so that Inform happens now rather than at the next periodic
-// interval. Port of goacs-php's DeviceController::provision.
+// GetDeviceProvision forces the device's next Inform to be treated like a boot for
+// provisioning rule matching (acs/methods/informmethods.go, Session.EnsureEventCode),
+// so any provision scoped to the "1 BOOT" event matches and its own script does
+// whatever discovery/setup it needs - there is no separate ACS-side parameter walk of
+// its own anymore. Then kicks the device so that Inform happens now rather than at the
+// next periodic interval. Port of goacs-php's DeviceController::provision.
 func GetDeviceProvision(ctx *gin.Context) {
 	cperepository := mysql.NewCPERepository(repository.GetConnection())
 	cpeModel, err := getCPEFromContext(ctx, cperepository)
@@ -633,12 +721,15 @@ func PatchDeviceParameters(ctx *gin.Context) {
 	for _, parameterRequest := range patchRequest.Parameters {
 		parameters = append(parameters, types.ParameterValueStruct{
 			Name:        parameterRequest.Name,
-			ValueStruct: types.ValueStruct{Value: parameterRequest.Value},
+			ValueStruct: types.ValueStruct{Value: parameterRequest.Value, Type: parameterRequest.Type},
 			Flag:        parameterRequest.Flag,
 		})
 	}
 
-	if ok := cperepository.BulkInsertOrUpdateParameters(cpeModel, parameters); !ok {
+	// preserveServerControlled=false: an explicit admin edit is exactly the kind of
+	// intentional write these flags are meant to allow - including setting/clearing
+	// Send or System themselves.
+	if ok := cperepository.BulkInsertOrUpdateParameters(cpeModel, parameters, false); !ok {
 		response.Response500(ctx, "Cannot patch parameters", "")
 		return
 	}

@@ -52,11 +52,32 @@ func (r *TemplateRepository) FindByName(name string) (*templates.Template, error
 	return templateInstance, nil
 }
 
+var templateFilterableColumns = map[string]bool{
+	"name": true,
+}
+
 func (r *TemplateRepository) List(request repository.PaginatorRequest) ([]templates.Template, int) {
+	dialect := goqu.Dialect("mysql")
+	baseBuilder := dialect.From("templates")
+
+	for key, value := range request.Filter {
+		if !templateFilterableColumns[key] {
+			continue
+		}
+		baseBuilder = baseBuilder.Where(goqu.Ex{key: goqu.Op{"ilike": "%" + value + "%"}})
+	}
+
 	var total int
-	var templates = make([]templates.Template, 0)
-	_ = r.db.Get(&total, "SELECT count(*) FROM templates")
-	err := r.db.Unsafe().Select(&templates, "SELECT * FROM templates LIMIT ?,?", request.CalcOffset(), request.PerPage)
+	totalSql, _, _ := baseBuilder.Select(goqu.COUNT("*")).ToSQL()
+	_ = r.db.Get(&total, totalSql)
+
+	listSql, _, _ := baseBuilder.Select("*").
+		Offset(uint(request.CalcOffset())).
+		Limit(uint(request.PerPage)).
+		ToSQL()
+
+	var templatesList = make([]templates.Template, 0)
+	err := r.db.Unsafe().Select(&templatesList, listSql)
 
 	if err != nil {
 		fmt.Println("Error while fetching query results")
@@ -64,7 +85,7 @@ func (r *TemplateRepository) List(request repository.PaginatorRequest) ([]templa
 		return nil, 0
 	}
 
-	return templates, total
+	return templatesList, total
 }
 
 func (r *TemplateRepository) CreateTemplate(template *templates.Template) {
@@ -341,7 +362,7 @@ func (r *TemplateRepository) CreateParameter(template_id int64, parameter types.
 			template_id,
 			parameter.Name,
 			parameter.ValueStruct.Value,
-			"",
+			parameter.ValueStruct.Type,
 			parameter.Flag.AsString(),
 			time.Now(),
 		}).
@@ -364,6 +385,7 @@ func (r *TemplateRepository) UpdateParameter(parameter_uuid string, parameter ty
 		Set(goqu.Record{
 			"name":       parameter.Name,
 			"value":      parameter.ValueStruct.Value,
+			"type":       parameter.ValueStruct.Type,
 			"flags":      parameter.Flag.AsString(),
 			"updated_at": time.Now(),
 		}).

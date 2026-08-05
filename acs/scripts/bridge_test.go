@@ -175,8 +175,9 @@ func TestBridge_Resume_WithoutSuspendedScript_ReturnsError(t *testing.T) {
 }
 
 // TestBridge_GetParameterValues_BlocksUntilCPEResponds mirrors the AddObject test:
-// getParameterValues() must suspend the script, send a real GetParameterValues RPC,
-// and hand the CPE's actual values back once they arrive on a later round-trip.
+// getParameterValues() must first suspend the script waiting for a GetParameterNames
+// reply (so the CPE tells us Writable), then suspend again waiting for the real
+// GetParameterValues reply, and hand the CPE's actual values back once they arrive.
 func TestBridge_GetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
 	session := &acs.ACSSession{}
 	session.CPE.Root = "InternetGatewayDevice"
@@ -190,13 +191,37 @@ func TestBridge_GetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
 
 	finished, err := Start(reqRes1, script)
 	require.NoError(t, err)
-	assert.False(t, finished, "script should be suspended waiting for the GetParameterValuesResponse")
+	assert.False(t, finished, "script should be suspended waiting for the GetParameterNamesResponse")
 
 	written := reqRes1.Response.(*httptest.ResponseRecorder).Body.String()
-	assert.Contains(t, written, "<cwmp:GetParameterValues>")
-	assert.Contains(t, written, "<string>InternetGatewayDevice.DeviceInfo.SoftwareVersion</string>")
+	assert.Contains(t, written, "<cwmp:GetParameterNames>")
+	assert.Contains(t, written, "<ParameterPath>InternetGatewayDevice.DeviceInfo.SoftwareVersion</ParameterPath>")
 
-	responseBody := `<?xml version="1.0"?>
+	gpnResponseBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:GetParameterNamesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <ParameterList>
+        <ParameterInfoStruct>
+          <Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name>
+          <Writable>1</Writable>
+        </ParameterInfoStruct>
+      </ParameterList>
+    </cwmp:GetParameterNamesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes2 := newBridgeTestRequest(session, acsxml.GPNResp, gpnResponseBody)
+
+	finished2, err2 := Resume(reqRes2)
+	require.NoError(t, err2)
+	assert.False(t, finished2, "script should now be suspended waiting for the GetParameterValuesResponse")
+
+	written2 := reqRes2.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written2, "<cwmp:GetParameterValues>")
+	assert.Contains(t, written2, "<string>InternetGatewayDevice.DeviceInfo.SoftwareVersion</string>")
+
+	gpvResponseBody := `<?xml version="1.0"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
   <soapenv:Body>
     <cwmp:GetParameterValuesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
@@ -210,7 +235,167 @@ func TestBridge_GetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
   </soapenv:Body>
 </soapenv:Envelope>`
 
-	reqRes2 := newBridgeTestRequest(session, acsxml.GPVResp, responseBody)
+	reqRes3 := newBridgeTestRequest(session, acsxml.GPVResp, gpvResponseBody)
+
+	var finished3 bool
+	var err3 error
+	logged := captureLog(t, func() {
+		finished3, err3 = Resume(reqRes3)
+	})
+
+	require.NoError(t, err3)
+	assert.True(t, finished3)
+	assert.Contains(t, logged, "got value: 1.2.3")
+
+	// The returned value must also have landed in the session's local parameter cache.
+	value, err := session.CPE.GetParameterValue("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
+	require.NoError(t, err)
+	assert.Equal(t, "1.2.3", value)
+
+	// Writable=1 from the GetParameterNames reply must have made it into Flag.Write -
+	// this is the whole point of the extra round-trip.
+	param := session.CPE.GetParameter("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
+	require.NotNil(t, param)
+	assert.True(t, param.Flag.Write, "Writable=1 from GetParameterNames should have set Flag.Write")
+}
+
+// TestBridge_GetParameterValues_MultipleArgs_OneGetParameterNamesPerPath proves that
+// calling getParameterValues() with two distinct paths issues one GetParameterNames
+// round-trip per path (GetParameterNames only supports a single ParameterPath per
+// request), not one shared/batched request.
+func TestBridge_GetParameterValues_MultipleArgs_OneGetParameterNamesPerPath(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+
+	reqRes1 := newBridgeTestRequest(session, acsxml.InformReq, "")
+
+	script := `
+		local values = getParameterValues(
+			"InternetGatewayDevice.DeviceInfo.SoftwareVersion",
+			"InternetGatewayDevice.DeviceInfo.HardwareVersion"
+		)
+		log("got values", values["InternetGatewayDevice.DeviceInfo.SoftwareVersion"] .. " " .. values["InternetGatewayDevice.DeviceInfo.HardwareVersion"])
+	`
+
+	finished, err := Start(reqRes1, script)
+	require.NoError(t, err)
+	assert.False(t, finished)
+
+	written := reqRes1.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written, "<cwmp:GetParameterNames>")
+	assert.Contains(t, written, "<ParameterPath>InternetGatewayDevice.DeviceInfo.SoftwareVersion</ParameterPath>")
+
+	gpnResponse := func(name string) string {
+		return `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:GetParameterNamesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <ParameterList>
+        <ParameterInfoStruct>
+          <Name>` + name + `</Name>
+          <Writable>1</Writable>
+        </ParameterInfoStruct>
+      </ParameterList>
+    </cwmp:GetParameterNamesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+	}
+
+	// First GetParameterNames round-trip (SoftwareVersion) - the reply must immediately
+	// carry the SECOND path's GetParameterNames request as its own response.
+	reqRes2 := newBridgeTestRequest(session, acsxml.GPNResp, gpnResponse("InternetGatewayDevice.DeviceInfo.SoftwareVersion"))
+	finished2, err2 := Resume(reqRes2)
+	require.NoError(t, err2)
+	assert.False(t, finished2, "should still be suspended waiting for the second path's GetParameterNamesResponse")
+
+	written2 := reqRes2.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written2, "<cwmp:GetParameterNames>")
+	assert.Contains(t, written2, "<ParameterPath>InternetGatewayDevice.DeviceInfo.HardwareVersion</ParameterPath>")
+
+	// Second GetParameterNames round-trip (HardwareVersion) - its reply must carry the
+	// real GetParameterValues request for both paths.
+	reqRes3 := newBridgeTestRequest(session, acsxml.GPNResp, gpnResponse("InternetGatewayDevice.DeviceInfo.HardwareVersion"))
+	finished3, err3 := Resume(reqRes3)
+	require.NoError(t, err3)
+	assert.False(t, finished3, "should now be suspended waiting for the GetParameterValuesResponse")
+
+	written3 := reqRes3.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.Contains(t, written3, "<cwmp:GetParameterValues>")
+	assert.Contains(t, written3, "<string>InternetGatewayDevice.DeviceInfo.SoftwareVersion</string>")
+	assert.Contains(t, written3, "<string>InternetGatewayDevice.DeviceInfo.HardwareVersion</string>")
+
+	gpvResponseBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <ParameterList>
+        <ParameterValueStruct>
+          <Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name>
+          <Value xsi:type="xsd:string">1.2.3</Value>
+        </ParameterValueStruct>
+        <ParameterValueStruct>
+          <Name>InternetGatewayDevice.DeviceInfo.HardwareVersion</Name>
+          <Value xsi:type="xsd:string">rev-A</Value>
+        </ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes4 := newBridgeTestRequest(session, acsxml.GPVResp, gpvResponseBody)
+
+	var finished4 bool
+	var err4 error
+	logged := captureLog(t, func() {
+		finished4, err4 = Resume(reqRes4)
+	})
+
+	require.NoError(t, err4)
+	assert.True(t, finished4)
+	assert.Contains(t, logged, "got values: 1.2.3 rev-A")
+}
+
+// TestBridge_GetParameterValues_SkipsGetParameterNames_WhenAlreadyKnownThisSession
+// proves that if the session already has Writable info for a path (e.g. from an
+// earlier getParameterValues() call in the same script), a later call for the SAME
+// path does not re-issue a GetParameterNames round-trip.
+func TestBridge_GetParameterValues_SkipsGetParameterNames_WhenAlreadyKnownThisSession(t *testing.T) {
+	session := &acs.ACSSession{}
+	session.CPE.Root = "InternetGatewayDevice"
+	session.CPE.AddParametersInfo([]acsxml.ParameterInfo{
+		{Name: "InternetGatewayDevice.DeviceInfo.SoftwareVersion", Writable: "0"},
+	})
+
+	reqRes1 := newBridgeTestRequest(session, acsxml.InformReq, "")
+
+	script := `
+		local values = getParameterValues("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
+		log("got value", values["InternetGatewayDevice.DeviceInfo.SoftwareVersion"])
+	`
+
+	finished, err := Start(reqRes1, script)
+	require.NoError(t, err)
+	assert.False(t, finished, "should skip straight to GetParameterValues - Writable already known")
+
+	written := reqRes1.Response.(*httptest.ResponseRecorder).Body.String()
+	assert.NotContains(t, written, "<cwmp:GetParameterNames>", "should not re-issue GetParameterNames for an already-known path")
+	assert.Contains(t, written, "<cwmp:GetParameterValues>")
+
+	gpvResponseBody := `<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <cwmp:GetParameterValuesResponse xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+      <ParameterList>
+        <ParameterValueStruct>
+          <Name>InternetGatewayDevice.DeviceInfo.SoftwareVersion</Name>
+          <Value xsi:type="xsd:string">1.2.3</Value>
+        </ParameterValueStruct>
+      </ParameterList>
+    </cwmp:GetParameterValuesResponse>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+	reqRes2 := newBridgeTestRequest(session, acsxml.GPVResp, gpvResponseBody)
 
 	var finished2 bool
 	var err2 error
@@ -221,11 +406,6 @@ func TestBridge_GetParameterValues_BlocksUntilCPEResponds(t *testing.T) {
 	require.NoError(t, err2)
 	assert.True(t, finished2)
 	assert.Contains(t, logged, "got value: 1.2.3")
-
-	// The returned value must also have landed in the session's local parameter cache.
-	value, err := session.CPE.GetParameterValue("InternetGatewayDevice.DeviceInfo.SoftwareVersion")
-	require.NoError(t, err)
-	assert.Equal(t, "1.2.3", value)
 }
 
 // TestBridge_SetParameterValues_BlocksUntilCPEResponds mirrors the AddObject test for

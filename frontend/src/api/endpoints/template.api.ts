@@ -11,6 +11,7 @@ export interface TemplateParameterRequest {
   template_id: number
   name: string
   value: string
+  type: string
   flag: Flag
 }
 

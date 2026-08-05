@@ -1,18 +1,31 @@
 import { http, unwrap, unwrapPaginated } from '../http'
 import { paginatorParamsToQuery, type PaginatorParams } from '../types/paginator'
-import type { CPE, CPETemplate, Flag, Parameter } from '../types/device'
+import type { CPE, CPETemplate, DiagnosticsReport, Flag, Parameter } from '../types/device'
 import type { Task, AddTaskRequest } from '../types/task'
 import type { LogEntry } from '../types/log'
 
 export interface ParameterRequest {
   name: string
   value: string
+  type: string
   flag: Flag
 }
 
 export interface AssignTemplateRequest {
   template_id: number
   priority: number
+}
+
+export interface DownloadDiagnosticsRequest {
+  url?: string
+  bytes?: number
+  number_of_connections?: number
+}
+
+export interface UploadDiagnosticsRequest {
+  url?: string
+  test_file_length: number
+  number_of_connections?: number
 }
 
 export const deviceApi = {
@@ -66,6 +79,13 @@ export const deviceApi = {
   updateTask: (uuid: string, taskId: number, payload: AddTaskRequest) =>
     unwrap<string>(http.put(`/device/${uuid}/tasks/${taskId}`, payload)),
   deleteTask: (uuid: string, taskId: number) => unwrap<string>(http.delete(`/device/${uuid}/tasks/${taskId}`)),
+
+  runDownloadDiagnostics: (uuid: string, payload: DownloadDiagnosticsRequest) =>
+    unwrap<string>(http.post(`/device/${uuid}/diagnostics/download`, payload)),
+  runUploadDiagnostics: (uuid: string, payload: UploadDiagnosticsRequest) =>
+    unwrap<string>(http.post(`/device/${uuid}/diagnostics/upload`, payload)),
+  getDiagnosticsReport: (uuid: string) =>
+    unwrap<DiagnosticsReport>(http.get(`/device/${uuid}/diagnostics/report`)),
 
   getLogs: (uuid: string, params: PaginatorParams) =>
     unwrapPaginated<LogEntry>(http.get(`/device/${uuid}/logs`, { params: paginatorParamsToQuery(params) })),

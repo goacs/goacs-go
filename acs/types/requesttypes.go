@@ -3,7 +3,7 @@ package types
 const (
 	InformReq        string = "inform"
 	InformResp       string = "InformResponse"
-	EMPTY            string = "empty"
+	EMPTY            string = "Empty"
 	GPNResp          string = "GetParameterNamesResponse"
 	GPNReq           string = "GetParameterNames"
 	GPVResp          string = "GetParameterValuesResponse"

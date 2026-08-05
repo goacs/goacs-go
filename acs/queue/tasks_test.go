@@ -26,6 +26,7 @@ func TestWrap_DispatchesByTaskType(t *testing.T) {
 		{"upload firmware", tasks.UploadFirmware, DownloadTask{}},
 		{"reboot", acsxml.Reboot, RebootTask{}},
 		{"run script", tasks.RunScript, RunScriptTask{}},
+		{"run diagnostics", tasks.RunDiagnostics, SetParameterValuesTask{}},
 		{"unknown", "SomethingElse", UnknownTask{}},
 	}
 
@@ -72,6 +73,36 @@ func TestGetParameterNamesTask_PathComesFromPayloadOnly(t *testing.T) {
 	path, ok = viaHelper.Payload["path"].(string)
 	assert.True(t, ok, "Payload path assertion should succeed when built via AsGetParameterNames")
 	assert.Equal(t, "Device.", path)
+}
+
+func TestExplicitParameterValues_ReadsAsDiagnosticsPayload(t *testing.T) {
+	// Shape produced by tasks.Task.AsDiagnostics after a round-trip through the JSON
+	// `payload` DB column: TaskPayload.Scan JSON-decodes into generic
+	// []interface{}/map[string]interface{}, not the original []map[string]string.
+	payload := tasks.TaskPayload{
+		"parameters": []interface{}{
+			map[string]interface{}{"name": "Device.IP.Diagnostics.DownloadDiagnostics.DiagnosticsState", "value": "Requested", "type": "xsd:string"},
+			map[string]interface{}{"name": "Device.IP.Diagnostics.DownloadDiagnostics.DownloadURL", "value": "http://acs.example/speedtest/download", "type": "xsd:string"},
+		},
+	}
+
+	params := explicitParameterValues(payload)
+
+	if assert.Len(t, params, 2) {
+		assert.Equal(t, "Device.IP.Diagnostics.DownloadDiagnostics.DiagnosticsState", params[0].Name)
+		assert.Equal(t, "Requested", params[0].ValueStruct.Value)
+		assert.Equal(t, "xsd:string", params[0].ValueStruct.Type)
+		assert.Equal(t, "http://acs.example/speedtest/download", params[1].ValueStruct.Value)
+	}
+}
+
+func TestExplicitParameterValues_NilWhenPayloadHasNoParameters(t *testing.T) {
+	// The auto-diff SetParameterValues task queued by PrepareParametersToSend always has
+	// an empty Payload (tasks.NewCPETask sets no fields) - explicitParameterValues must
+	// return nil so SetParameterValuesTask.ToRequest falls back to the session's
+	// PopParametersToAdd() diff queue, unchanged from before this feature existed.
+	assert.Nil(t, explicitParameterValues(tasks.TaskPayload{}))
+	assert.Nil(t, explicitParameterValues(nil))
 }
 
 func TestWrap_RunScriptTask_ReturnsScriptSource(t *testing.T) {

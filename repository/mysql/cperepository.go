@@ -201,6 +201,7 @@ func (r *CPERepository) UpdateOrCreate(cpe *cpe.CPE) (result bool, cpeExist bool
 		cpeExist = false
 	} else {
 		cpe.UUID = dbCPE.UUID
+		cpe.Debug = dbCPE.Debug
 
 		fmt.Println("Updating CPE")
 		dialect := goqu.Dialect("mysql")
@@ -300,12 +301,30 @@ func (r *CPERepository) CreateParameter(cpe *cpe.CPE, parameter types.ParameterV
 	return true, nil
 }
 
-func (r *CPERepository) BulkInsertOrUpdateParameters(cpe *cpe.CPE, parameters []types.ParameterValueStruct) bool {
+// BulkInsertOrUpdateParameters upserts parameters read from - or otherwise known about
+// - a device. preserveServerControlled, when true, leaves value/type/flags untouched
+// for any existing row whose stored flags already include Send (S) or System (X) -
+// those are parameters the ACS itself controls (a pending/confirmed admin- or
+// script-driven push, or ACS-internal bookkeeping), so a bulk resync built from
+// whatever the CPE most recently reported must not clobber them before that push has
+// even had a chance to apply. Pass false for writes that ARE the ACS's own intentional
+// action on these exact parameters - confirming a just-applied SetParameterValues push
+// (SetParameterValuesResponseParser) or an explicit admin edit (PatchDeviceParameters) -
+// where skipping the write would defeat the very mechanism that sets these flags.
+func (r *CPERepository) BulkInsertOrUpdateParameters(cpe *cpe.CPE, parameters []types.ParameterValueStruct, preserveServerControlled bool) bool {
 	tx, err := r.db.Begin()
 
 	if err != nil {
 		log.Println("Cannot create TX for BulkInsertOrUpdateParameters ", err.Error())
 		return false
+	}
+
+	updateClause := "name=values(name),value=values(value), type=values(type), flags=values(flags)"
+	if preserveServerControlled {
+		updateClause = "name=values(name)," +
+			"value=IF(flags LIKE '%S%' OR flags LIKE '%X%', value, values(value))," +
+			"type=IF(flags LIKE '%S%' OR flags LIKE '%X%', type, values(type))," +
+			"flags=IF(flags LIKE '%S%' OR flags LIKE '%X%', flags, values(flags))"
 	}
 
 	chunks := funk.Chunk(parameters, 300)
@@ -321,8 +340,11 @@ func (r *CPERepository) BulkInsertOrUpdateParameters(cpe *cpe.CPE, parameters []
 			valueArgs = append(valueArgs, parameter.Flag.AsString())
 		}
 
-		stmt := fmt.Sprintf("INSERT INTO cpe_parameters(cpe_uuid,name,value,type,flags) VALUES %s "+
-			"ON DUPLICATE KEY UPDATE name=values(name),value=values(value), type=values(type), flags=values(flags)", strings.Join(valueStrings, ","))
+		// updateClause contains literal '%' (LIKE '%S%'/'%X%') - it must never be part
+		// of a fmt.Sprintf format string (Sprintf would parse %S/%X as verbs and mangle
+		// the SQL), so it's concatenated in only after the one real %s substitution.
+		stmt := fmt.Sprintf("INSERT INTO cpe_parameters(cpe_uuid,name,value,type,flags) VALUES %s ", strings.Join(valueStrings, ",")) +
+			"ON DUPLICATE KEY UPDATE " + updateClause
 		_, err := tx.Exec(stmt, valueArgs...)
 
 		if err != nil {
@@ -500,6 +522,36 @@ func (r *CPERepository) ListCPEParameters(cpe *cpe.CPE, request repository.Pagin
 
 	parameters = parametersRowsParser(rows)
 	return parameters, total
+}
+
+// FilterCPEParameters returns every cpe_parameters row matching filter (same
+// ilike-substring semantics as ListCPEParameters), with no LIMIT/OFFSET applied.
+// Used when a cached_value filter needs to run in Go before paging, since that
+// value comes from the in-memory lookup cache rather than this table - see
+// GetDeviceParameters, which pages the already-filtered result itself.
+func (r *CPERepository) FilterCPEParameters(cpe *cpe.CPE, filter map[string]string) []types.ParameterValueStruct {
+	dialect := goqu.Dialect("mysql")
+
+	baseBulder := dialect.From("cpe_parameters").
+		Where(goqu.C("cpe_uuid").Eq(cpe.UUID))
+
+	for key, value := range filter {
+		baseBulder = baseBulder.Where(goqu.Ex{
+			key: goqu.Op{"ilike": "%" + value + "%"},
+		})
+	}
+
+	sql, _, _ := baseBulder.ToSQL()
+
+	rows, err := r.db.Unsafe().Queryx(sql)
+
+	if err != nil {
+		fmt.Println("Error while fetching query results")
+		fmt.Println(err.Error())
+		return nil
+	}
+
+	return parametersRowsParser(rows)
 }
 
 func (r *CPERepository) LoadParameters(cpe *cpe.CPE) (bool, error) {

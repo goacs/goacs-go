@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
+import { FilterMatchMode } from '@primevue/core/api'
 import { useServerTable } from '@/composables/useServerTable'
 import { deviceApi } from '@/api/endpoints/device.api'
 import type { Parameter } from '@/api/types/device'
@@ -13,12 +14,10 @@ import { downloadBlob } from '@/composables/useDownload'
 
 const props = defineProps<{ uuid: string }>()
 
-const table = useServerTable<Parameter>({ fetcher: (params) => deviceApi.getCachedParameters(props.uuid, params) })
-const nameFilter = ref('')
-
-function applyNameFilter() {
-  table.onFilterChange({ ...table.filter.value, name: nameFilter.value })
-}
+const table = useServerTable<Parameter>({
+  fetcher: (params) => deviceApi.getCachedParameters(props.uuid, params),
+  filters: { name: { value: '', matchMode: FilterMatchMode.CONTAINS } },
+})
 
 async function download() {
   const response = await deviceApi.downloadCachedParametersCsv(props.uuid)
@@ -33,11 +32,11 @@ onMounted(() => table.load())
     <h1>Cached parameters</h1>
 
     <div class="toolbar">
-      <InputText v-model="nameFilter" placeholder="Filter by name..." @input="applyNameFilter" />
       <Button label="Download CSV" icon="pi pi-download" severity="secondary" @click="download" />
     </div>
 
     <DataTable
+      v-model:filters="table.filters.value"
       :value="table.items.value"
       :loading="table.loading.value"
       :total-records="table.total.value"
@@ -45,10 +44,16 @@ onMounted(() => table.load())
       :first="(table.page.value - 1) * table.perPage.value"
       lazy
       paginator
+      filter-display="row"
       size="small"
       @page="table.onPage"
+      @filter="table.onFilter"
     >
-      <Column field="name" header="Name" />
+      <Column field="name" header="Name" :show-filter-menu="false">
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText v-model="filterModel.value" size="small" placeholder="Filter by name..." @input="filterCallback()" />
+        </template>
+      </Column>
       <Column header="Value">
         <template #body="{ data }">{{ data.valuestruct.value }}</template>
       </Column>

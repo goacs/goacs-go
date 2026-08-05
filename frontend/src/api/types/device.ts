@@ -29,6 +29,12 @@ export interface Parameter {
   name: string
   valuestruct: ValueStruct
   flag: Flag
+  // Only populated by GetDeviceParameters (the main parameter list): the
+  // value most recently read from the device via "lookup now", when this
+  // parameter name is still present in that cache snapshot - lets the UI
+  // compare it against valuestruct.value (what's stored in cpe_parameters).
+  // Absent/null when never looked up or the snapshot has expired.
+  cached_value?: string | null
 }
 
 // Mirrors Go's acs/types.IPAddress (a net.IPAddr wrapper) - marshals as
@@ -57,4 +63,21 @@ export interface CPETemplate {
   id: number
   name: string
   priority: number
+}
+
+// Mirrors Go's http/controllers.DiagnosticsResult - a computed TR-143 speedtest result,
+// only ever populated when DiagnosticsState is "Complete" and the CPE-reported EOMTime is
+// within the last 24h (enforced server-side, see GetDiagnosticsReport).
+export interface DiagnosticsResult {
+  state: string
+  bytes: number
+  start_time: string
+  end_time: string
+  duration_seconds: number
+  throughput_mbps: number
+}
+
+export interface DiagnosticsReport {
+  download: DiagnosticsResult | null
+  upload: DiagnosticsResult | null
 }

@@ -2,6 +2,7 @@ package methods
 
 import (
 	"encoding/xml"
+	"fmt"
 	acscontext "goacs/acs/context"
 	"goacs/acs/http"
 	acsxml "goacs/acs/types"
@@ -22,6 +23,20 @@ type ParameterDecisions struct {
 	ReqRes *http.CPERequest
 }
 
+func (pd *ParameterDecisions) CpeEmptyResponseParser() {
+	if pd.ReqRes.Session.LookupOnly {
+		pd.ReqRes.Session.CurrentState = acsxml.GPNReq
+		task := tasks.NewCPETask(pd.ReqRes.Session.CPE.UUID)
+		task.AsGetParameterNames(pd.ReqRes.Session.CPE.Root + ".")
+		task.ParameterInfo = append(task.ParameterInfo, acsxml.ParameterInfo{
+			Name: pd.ReqRes.Session.CPE.Root + ".",
+			Done: false,
+		})
+		task.NextLevel = true
+		pd.ReqRes.Session.AddTask(task)
+	}
+}
+
 func (pd *ParameterDecisions) ParameterNamesRequest(path string, nextlevel bool) string {
 	pd.ReqRes.Session.CurrentState = acsxml.GPNReq
 	return pd.ReqRes.Envelope.GPNRequest(path, nextlevel)
@@ -37,8 +52,10 @@ func (pd *ParameterDecisions) CpeParameterNamesResponseParser() {
 	pd.ReqRes.Session.CPE.AddParametersInfo(gpnr.ParameterList)
 	pd.ReqRes.Session.GPNCount--
 
-	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
+	//cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+	//if !pd.ReqRes.Session.LookupOnly {
+	//	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.GetObjectNamesToParameters())
+	//}
 
 	nextLevelParams := pd.GetNextLevelParams(pd.ReqRes.Session.CPE.ParametersInfo)
 
@@ -131,26 +148,22 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 	var gpvr acsxml.GetParameterValuesResponse
 	_ = xml.Unmarshal(pd.ReqRes.Body, &gpvr)
 	log.Println("GetParameterValuesResponseParser")
-	pd.ReqRes.Session.CPE.AddParameterValues(gpvr.ParameterList)
-	pd.ReqRes.Session.FillCPESessionBaseInfo(gpvr.ParameterList)
-	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_, _, _ = cpeRepository.UpdateOrCreate(&pd.ReqRes.Session.CPE)
 
+	pd.PersistFetchedParameterValues(gpvr.ParameterList)
 	pd.ReqRes.Session.GPVCount--
 
-	// On-demand lookup: if GET /api/device/:uuid/lookup armed this flag before
-	// kicking the device, snapshot the values it just returned into the cache
-	// so GET /api/device/:uuid/parameters/cached can serve them. One-shot via
-	// TTL expiry, same as goacs-php's Context (no explicit consume/forget).
-	if _, enabled := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, pd.ReqRes.Session.CPE.SerialNumber)); enabled {
-		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
+	fmt.Println("New in acs", pd.ReqRes.Session.IsNewInACS)
+	fmt.Println("prev state", pd.ReqRes.Session.PrevState)
+	fmt.Println("is boot", pd.ReqRes.Session.IsBoot)
+
+	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
+		// Already persisted by PersistFetchedParameterValues above.
+		return
 	}
 
-	//log.Println(pd.CPERequest.Session.CPE.ParameterValues)
-	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
-		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues)
-	} else if pd.ReqRes.Session.IsBoot {
+	if pd.ReqRes.Session.IsBoot {
 		if pd.ReqRes.Session.HasTaskOfType(acsxml.GPVReq) == false {
+			cpeRepository := mysql.NewCPERepository(repository.GetConnection())
 			cpeObjectParameters := pd.ReqRes.Session.CPE.GetObjectNamesToParameters()
 			dbObjectParameters := cpeRepository.GetCPEParametersWithFlag(&pd.ReqRes.Session.CPE, "A")
 
@@ -190,6 +203,48 @@ func (pd *ParameterDecisions) GetParameterValuesResponseParser() {
 
 }
 
+// PersistFetchedParameterValues merges a batch of parameter values just read from the
+// CPE into the session's in-memory tree and persists them (full bulk sync) when the
+// session is a brand-new device or fresh off an AddObject round-trip - the same
+// merge+persist logic the ordinary GetParameterValues walk uses above, shared here so a
+// Lua provisioning script's blocking getParameterValues() call
+// (acs/scripts/bridge.go) gets identical value persistence, since a suspended script
+// bypasses the normal switch-based dispatch in acs/logic/dispatcher.go entirely
+// (session.Script != nil short-circuits before the switch even runs, so
+// GetParameterValuesResponseParser above is never called for that round-trip).
+// Deliberately excludes the IsBoot AddObject/DeleteObject diffing above - a script
+// fetching values should not gain new task-queueing side effects.
+//
+// Guarded by repository.HasConnection() - like the sibling blocking setParameterValues
+// in acs/scripts/bridge.go - since this is now reachable from bridge_test.go's unit
+// tests, which exercise the Lua bridge without a real DB connection.
+func (pd *ParameterDecisions) PersistFetchedParameterValues(parameterList []acsxml.ParameterValueStruct) {
+	pd.ReqRes.Session.CPE.AddParameterValues(parameterList)
+	pd.ReqRes.Session.FillCPESessionBaseInfo(parameterList)
+
+	if !repository.HasConnection() {
+		return
+	}
+
+	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
+	_, _, _ = cpeRepository.UpdateOrCreate(&pd.ReqRes.Session.CPE)
+
+	// On-demand lookup: if GET /api/device/:uuid/lookup armed this flag before
+	// kicking the device, snapshot the values it just returned into the cache
+	// so GET /api/device/:uuid/parameters/cached can serve them. One-shot via
+	// TTL expiry, same as goacs-php's Context (no explicit consume/forget).
+	if _, enabled := cache.Global.Get(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, pd.ReqRes.Session.CPE.SerialNumber)); enabled {
+		cache.Global.Put(acscontext.KeyFor(acscontext.LookupParamsPrefix, pd.ReqRes.Session.CPE.SerialNumber), pd.ReqRes.Session.CPE.ParameterValues, 30*time.Minute)
+	}
+
+	if pd.ReqRes.Session.IsNewInACS || pd.ReqRes.Session.PrevState == acsxml.AddObjReq {
+		// preserveServerControlled=true: this is a bulk resync built from whatever the
+		// CPE just reported, not an intentional ACS write - must not clobber a
+		// Send/System-flagged parameter's pending/authoritative value.
+		_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, pd.ReqRes.Session.CPE.ParameterValues, true)
+	}
+}
+
 // SetParameterValuesResponseParser handles the CPE's reply to a
 // SetParameterValues request built from a SetParameterValuesTask (queue.go) -
 // whether that task came from PrepareParametersToSend's template/stored-
@@ -211,10 +266,14 @@ func (pd *ParameterDecisions) SetParameterValuesResponseParser() {
 
 	pd.ReqRes.Session.CPE.AddParameterValues(confirmed)
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
-	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, confirmed)
+	// preserveServerControlled=false: this IS the ACS's own SetParameterValues push
+	// completing - it must persist even for a Send/System-flagged parameter, otherwise
+	// that flag could never be fulfilled.
+	_ = cpeRepository.BulkInsertOrUpdateParameters(&pd.ReqRes.Session.CPE, confirmed, false)
 }
 
 func (pd *ParameterDecisions) PrepareParametersToSend() {
+	fmt.Println("PrepareParametersToSend")
 	pd.ReqRes.Session.PrevState = acsxml.SPVReq
 	cpeRepository := mysql.NewCPERepository(repository.GetConnection())
 	templateRepository := mysql.NewTemplateRepository(repository.GetConnection())

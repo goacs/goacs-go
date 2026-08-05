@@ -4,14 +4,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	digest_auth_client "github.com/xinsnake/go-http-digest-auth-client"
+	acscontext "goacs/acs/context"
 	"goacs/acs/types"
+	"goacs/lib/cache"
 	"goacs/models/cpe"
 	"goacs/models/tasks"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	digest_auth_client "github.com/xinsnake/go-http-digest-auth-client"
 )
 
 const SessionLifetime = 300
@@ -25,13 +28,25 @@ const (
 )
 
 type ACSSession struct {
-	Id                          string
-	IsNew                       bool
-	IsNewInACS                  bool
-	IsBoot                      bool
-	IsBootstrap                 bool
-	Provision                   bool
-	ReadAllParameters           bool
+	Id                string
+	IsNew             bool
+	IsNewInACS        bool
+	IsBoot            bool
+	IsBootstrap       bool
+	Provision         bool
+	ReadAllParameters bool
+
+	// LookupOnly is true when GET /api/device/:uuid/lookup armed the one-shot
+	// LookupParamsEnabledPrefix cache flag before kicking this device
+	// (acs/methods/informmethods.go). It forces the same full
+	// GetParameterNames/GetParameterValues walk IsBoot does, but every write
+	// that walk would otherwise make to cpe_parameters (parameter names in
+	// ParameterDecisions.CpeParameterNamesResponseParser, object-instance
+	// AddObj/DelObj diffing in GetParameterValuesResponseParser) is skipped -
+	// the results only ever reach the LookupParamsPrefix cache entry, never
+	// the database, so a read-only "lookup" never has side effects on the
+	// device or its stored parameters.
+	LookupOnly                  bool
 	CurrentState                string
 	PrevState                   string
 	CreatedAt                   time.Time
@@ -168,11 +183,13 @@ func CreateEmptySession(sessionId string) *ACSSession {
 
 func DeleteSession(sessionId string) {
 	lock.Lock()
+
 	if session, ok := acsSessions[sessionId]; ok && session.Script != nil {
 		// A script suspended waiting for a CPE response that will now never be
 		// correlated to anything (the session is gone) - cancel it immediately
 		// rather than waiting for its own timeout, freeing the goroutine promptly.
 		session.Script.Cancel()
+		cache.Global.Forget(acscontext.KeyFor(acscontext.LookupParamsEnabledPrefix, session.CPE.SerialNumber))
 	}
 	delete(acsSessions, sessionId)
 	lock.Unlock()
@@ -202,6 +219,23 @@ func (session *ACSSession) FillCPESessionFromInform(inform types.Inform) {
 	}
 	session.CPE.AddParameterValues(inform.ParameterList)
 	session.FillCPESessionBaseInfo(inform.ParameterList)
+}
+
+// EnsureEventCode adds code to CurrentEventCodes if it isn't already present - used
+// when something other than the CPE's own wire-level Inform.Events forces this session
+// into boot-like handling (e.g. GET /api/device/:uuid/provision), so a provisioning
+// rule scoped to "1 BOOT" still matches even though the real Inform carried a
+// different event (e.g. "2 PERIODIC"). This is deliberately the only mechanism for
+// that now - forcing IsBoot no longer triggers any ACS-side GetParameterNames/
+// GetParameterValues walk of its own; discovery is entirely the matched provision's
+// own script's job.
+func (session *ACSSession) EnsureEventCode(code string) {
+	for _, existing := range session.CurrentEventCodes {
+		if existing == code {
+			return
+		}
+	}
+	session.CurrentEventCodes = append(session.CurrentEventCodes, code)
 }
 
 func (session *ACSSession) FillCPESessionBaseInfo(parameters []types.ParameterValueStruct) {
