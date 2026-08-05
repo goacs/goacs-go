@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import ProgressSpinner from 'primevue/progressspinner'
 import { useDeviceStore } from '@/stores/device.store'
+import DeviceHeaderBar from './sections/DeviceHeaderBar.vue'
 import DeviceInfoPanel from './sections/DeviceInfoPanel.vue'
 import DeviceQueuedTasksPanel from './sections/DeviceQueuedTasksPanel.vue'
 import DeviceTemplatesPanel from './sections/DeviceTemplatesPanel.vue'
@@ -17,22 +18,24 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
 
 <template>
   <div>
-    <h1>Device</h1>
-
     <ProgressSpinner v-if="deviceStore.loading && !deviceStore.currentDevice" style="width: 3rem" />
 
-    <div v-else-if="deviceStore.currentDevice" class="device-grid">
-      <div class="device-grid__left">
-        <DeviceInfoPanel :device="deviceStore.currentDevice" />
-        <DeviceSpeedtestPanel :uuid="props.uuid" />
+    <template v-else-if="deviceStore.currentDevice">
+      <DeviceHeaderBar :device="deviceStore.currentDevice" />
+
+      <div class="device-grid">
+        <div class="device-grid__main">
+          <DeviceParameterListPanel :uuid="props.uuid" />
+          <DeviceLogsPanel :uuid="props.uuid" />
+        </div>
+        <div class="device-grid__side">
+          <DeviceInfoPanel :device="deviceStore.currentDevice" />
+          <DeviceSpeedtestPanel :uuid="props.uuid" />
+          <DeviceQueuedTasksPanel :uuid="props.uuid" />
+          <DeviceTemplatesPanel :uuid="props.uuid" />
+        </div>
       </div>
-      <div class="device-grid__right">
-        <DeviceQueuedTasksPanel :uuid="props.uuid" />
-        <DeviceTemplatesPanel :uuid="props.uuid" />
-        <DeviceLogsPanel :uuid="props.uuid" />
-      </div>
-      <DeviceParameterListPanel :uuid="props.uuid" class="device-grid__full" />
-    </div>
+    </template>
   </div>
 </template>
 
@@ -41,10 +44,11 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.25rem;
+  align-items: start;
 }
 
-.device-grid__left,
-.device-grid__right {
+.device-grid__main,
+.device-grid__side {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -53,11 +57,7 @@ onMounted(() => deviceStore.fetchDevice(props.uuid))
 
 @media (min-width: 1200px) {
   .device-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .device-grid__full {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr 300px;
   }
 }
 </style>

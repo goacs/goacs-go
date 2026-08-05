@@ -173,6 +173,7 @@ func logConversation(reqRes *acshttp.CPERequest, from string, body []byte) {
 	_ = logRepository.Save(&log.Log{
 		CPEUUID:   reqRes.Session.CPE.UUID,
 		FullXML:   string(body),
+		Message:   acsxml.ParseRPCName(body),
 		Type:      log.TypeInfo,
 		From:      from,
 		SessionId: reqRes.Session.Id,
