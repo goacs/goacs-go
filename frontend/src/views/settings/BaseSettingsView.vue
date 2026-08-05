@@ -23,7 +23,27 @@ const KNOWN_KEYS = [
   'webhook_after_provision',
   'webhook_timeout',
   'webhook_ssl_verify',
+  'ai_enabled',
+  'ai_provider',
+  'ai_api_key',
+  'ai_model',
+  'ai_base_url',
 ]
+
+const AI_PROVIDERS = [
+  { label: 'Anthropic (Claude)', value: 'anthropic' },
+  { label: 'OpenAI-compatible', value: 'openai_compatible' },
+]
+
+const AI_MODEL_PLACEHOLDERS: Record<string, string> = {
+  anthropic: 'claude-sonnet-5',
+  openai_compatible: 'gpt-4.1',
+}
+
+const AI_BASE_URL_PLACEHOLDERS: Record<string, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai_compatible: 'https://api.openai.com/v1',
+}
 
 const known = reactive<Record<string, string>>({})
 const extra = reactive<Array<{ key: string; value: string }>>([])
@@ -62,6 +82,11 @@ function removeExtraRow(index: number) {
 const webhookSslVerify = computed({
   get: () => known.webhook_ssl_verify === '1' || known.webhook_ssl_verify === 'true',
   set: (value: boolean) => (known.webhook_ssl_verify = value ? '1' : '0'),
+})
+
+const aiEnabled = computed({
+  get: () => known.ai_enabled === '1' || known.ai_enabled === 'true',
+  set: (value: boolean) => (known.ai_enabled = value ? '1' : '0'),
 })
 
 async function save() {
@@ -130,6 +155,49 @@ onMounted(load)
       </div>
     </Panel>
 
+    <Panel header="AI Assistant">
+      <div class="fields">
+        <div class="field-inline">
+          <ToggleSwitch v-model="aiEnabled" />
+          <label>Enable AI script assistant</label>
+        </div>
+        <div class="field">
+          <label>Provider</label>
+          <Select
+            v-model="known.ai_provider"
+            :options="AI_PROVIDERS"
+            option-label="label"
+            option-value="value"
+            fluid
+          />
+        </div>
+        <div class="field">
+          <label>API key</label>
+          <InputText v-model="known.ai_api_key" type="password" fluid />
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <InputText
+            v-model="known.ai_model"
+            :placeholder="AI_MODEL_PLACEHOLDERS[known.ai_provider] ?? ''"
+            fluid
+          />
+        </div>
+        <div class="field">
+          <label>Base URL (optional)</label>
+          <InputText
+            v-model="known.ai_base_url"
+            :placeholder="AI_BASE_URL_PLACEHOLDERS[known.ai_provider] ?? ''"
+            fluid
+          />
+          <small v-if="known.ai_provider === 'openai_compatible'" class="hint">
+            Include the version path your server actually exposes - not every
+            OpenAI-compatible endpoint uses /v1, some use /api or nothing at all.
+          </small>
+        </div>
+      </div>
+    </Panel>
+
     <Panel header="Additional settings" toggleable collapsed>
       <div v-for="(row, index) in extra" :key="index" class="extra-row">
         <InputText v-model="row.key" placeholder="key" />
@@ -169,6 +237,10 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 0.6rem;
+}
+
+.hint {
+  opacity: 0.6;
 }
 
 .extra-row {

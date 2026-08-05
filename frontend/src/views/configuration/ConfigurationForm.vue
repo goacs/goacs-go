@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -7,6 +7,7 @@ import EventSelect from '@/components/selects/EventSelect.vue'
 import RequestSelect from '@/components/selects/RequestSelect.vue'
 import RuleItem from '@/components/rules/RuleItem.vue'
 import ScriptListEditor from '@/components/rules/ScriptListEditor.vue'
+import AiScriptPanel from '@/components/configuration/AiScriptPanel.vue'
 import type { Provision, ProvisionRule, ProvisionStoreRequest } from '@/api/types/configuration'
 import { useApiErrors } from '@/composables/useApiErrors'
 
@@ -14,6 +15,11 @@ const props = defineProps<{ initial?: Provision | null; saving?: boolean }>()
 const emit = defineEmits<{ submit: [ProvisionStoreRequest] }>()
 
 const { fieldErrors, generalError, run } = useApiErrors()
+const aiPanelVisible = ref(false)
+
+function insertAiScript(script: string) {
+  form.script = [...form.script, script]
+}
 
 const form = reactive<ProvisionStoreRequest>({
   name: '',
@@ -94,7 +100,22 @@ async function submitForm() {
     </div>
 
     <div class="section">
-      <h3>Scripts</h3>
+      <div class="section-header">
+        <h3>Scripts</h3>
+        <Button
+          label="AI Assistant"
+          icon="pi pi-sparkles"
+          text
+          size="small"
+          @click="aiPanelVisible = !aiPanelVisible"
+        />
+      </div>
+      <AiScriptPanel
+        v-model:visible="aiPanelVisible"
+        :events="eventsList.value.join(',')"
+        :requests="requestsList.value.join(',')"
+        @insert="insertAiScript"
+      />
       <ScriptListEditor v-model="form.script" />
     </div>
 
