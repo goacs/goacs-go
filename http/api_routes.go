@@ -10,6 +10,8 @@ import (
 func RegisterApiRoutes(gin *gin.Engine) {
 	var env lib.Env
 	gin.GET("/file/:filename", controllers.DownloadFile)
+	gin.GET("/speedtest/download", controllers.SpeedtestDownload)
+	gin.POST("/speedtest/upload", controllers.SpeedtestUpload)
 	apiGroup := gin.Group("/api")
 	apiGroup.Use()
 	apiGroup.POST("/auth/login", controllers.Login)
@@ -53,6 +55,9 @@ func RegisterApiRoutes(gin *gin.Engine) {
 		apiGroup.DELETE("/device/:uuid/parameters", controllers.DeleteParameter)
 		apiGroup.POST("/device/:uuid/addobject", controllers.AddObject)
 		apiGroup.POST("/device/:uuid/getparametervalues", controllers.GetParameterValues)
+		apiGroup.POST("/device/:uuid/diagnostics/download", controllers.RunDownloadDiagnostics)
+		apiGroup.POST("/device/:uuid/diagnostics/upload", controllers.RunUploadDiagnostics)
+		apiGroup.GET("/device/:uuid/diagnostics/report", controllers.GetDiagnosticsReport)
 		apiGroup.GET("/device/:uuid/tasks", controllers.GetDeviceQueuedTasks)
 		apiGroup.POST("/device/:uuid/tasks", controllers.AddDeviceTask)
 		apiGroup.GET("/device/:uuid/tasks/:taskid", controllers.GetDeviceTask)

@@ -38,13 +38,59 @@ func (t GetParameterValuesTask) ToRequest(ctx *RunContext) (string, error) {
 type SetParameterValuesTask struct{ dbTaskAdapter }
 
 func (t SetParameterValuesTask) ToRequest(ctx *RunContext) (string, error) {
-	params := ctx.ReqRes.Session.PopParametersToAdd()
+	// An operator-queued task (e.g. tasks.RunDiagnostics, via Task.AsDiagnostics) carries
+	// its own explicit values in Payload["parameters"] and takes precedence; the ordinary
+	// path is the in-session-only auto-diff task queued by PrepareParametersToSend, whose
+	// Payload is always empty, so this falls through to the session queue unchanged.
+	params := explicitParameterValues(t.db.Payload)
+	if params == nil {
+		params = ctx.ReqRes.Session.PopParametersToAdd()
+	}
 	// Remembered here since the response confirming these values arrives on
 	// a later round-trip, after ParametersToAdd has already been popped -
 	// see ParameterDecisions.SetParameterValuesResponseParser.
 	ctx.ReqRes.Session.PendingSetParameterValues = params
 	ctx.ReqRes.Session.PrevState = acsxml.SPVReq
 	return ctx.ReqRes.Envelope.SetParameterValues(params), nil
+}
+
+// explicitParameterValues reads the []map[string]string shape written by
+// tasks.Task.AsDiagnostics back out of Payload["parameters"]. Payload always round-trips
+// through the JSON `payload` DB column (see TaskPayload.Value/Scan), so by the time this
+// runs "parameters" is generic JSON-decoded shape ([]interface{} of
+// map[string]interface{}), not the original []map[string]string.
+func explicitParameterValues(payload tasks.TaskPayload) []acsxml.ParameterValueStruct {
+	raw, ok := payload["parameters"]
+	if !ok {
+		return nil
+	}
+	list, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	params := make([]acsxml.ParameterValueStruct, 0, len(list))
+	for _, item := range list {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := entry["name"].(string)
+		if name == "" {
+			continue
+		}
+		value, _ := entry["value"].(string)
+		valueType, _ := entry["type"].(string)
+		params = append(params, acsxml.ParameterValueStruct{
+			Name:        name,
+			ValueStruct: acsxml.ValueStruct{Value: value, Type: valueType},
+		})
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+	return params
 }
 
 // AddObjectTask handles both operator-initiated AddObject (task type "AddObject",
@@ -151,7 +197,7 @@ func Wrap(db tasks.Task) Task {
 		return GetParameterNamesTask{adapter}
 	case acsxml.GPVReq:
 		return GetParameterValuesTask{adapter}
-	case acsxml.SPVReq:
+	case acsxml.SPVReq, tasks.RunDiagnostics:
 		return SetParameterValuesTask{adapter}
 	case tasks.AddObject, acsxml.AddObjReq:
 		return AddObjectTask{adapter}
