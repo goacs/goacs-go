@@ -1,0 +1,48 @@
+### Trigger a TR-143 download speed test - self-hosted by default (no "url" needed),
+### GoACS points the CPE at its own /speedtest/download endpoint.
+POST http://localhost:8085/api/device/3ec91f87-5313-41e9-88fa-f53b76405b99/diagnostics/download
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDM2NTM1MTcsImlzcyI6InVzZXIiLCJzdWIiOiJhZmI4OGQyZS1iMTYxLTRmYWYtOTVkNi1kM2QzMWY4YTYxNDIifQ.TVkcKL9sOyr4OqQqSr43HLAJKMlKrztPqe1cDNgnOeM
+
+{
+  "bytes": 52428800
+}
+
+### Same, but against an external speedtest server instead of GoACS's own endpoint.
+POST http://localhost:8085/api/device/3ec91f87-5313-41e9-88fa-f53b76405b99/diagnostics/download
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDM2NTM1MTcsImlzcyI6InVzZXIiLCJzdWIiOiJhZmI4OGQyZS1iMTYxLTRmYWYtOTVkNi1kM2QzMWY4YTYxNDIifQ.TVkcKL9sOyr4OqQqSr43HLAJKMlKrztPqe1cDNgnOeM
+
+{
+  "url": "http://speedtest.example.net/50MB.bin"
+}
+
+### Trigger a TR-143 upload speed test - self-hosted, CPE uploads 20MB of generated data
+### to GoACS's own /speedtest/upload, which just counts and discards it.
+POST http://localhost:8085/api/device/3ec91f87-5313-41e9-88fa-f53b76405b99/diagnostics/upload
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDM2NTM1MTcsImlzcyI6InVzZXIiLCJzdWIiOiJhZmI4OGQyZS1iMTYxLTRmYWYtOTVkNi1kM2QzMWY4YTYxNDIifQ.TVkcKL9sOyr4OqQqSr43HLAJKMlKrztPqe1cDNgnOeM
+
+{
+  "test_file_length": 20971520
+}
+
+### Read back the last speed test report (only returns a direction if it finished within
+### the last 24h - see DiagnosticsResult.state == "Complete" / EOMTime filter).
+GET http://localhost:8085/api/device/3ec91f87-5313-41e9-88fa-f53b76405b99/diagnostics/report
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDM2NTM1MTcsImlzcyI6InVzZXIiLCJzdWIiOiJhZmI4OGQyZS1iMTYxLTRmYWYtOTVkNi1kM2QzMWY4YTYxNDIifQ.TVkcKL9sOyr4OqQqSr43HLAJKMlKrztPqe1cDNgnOeM
+
+### Confirm the task was queued for the device (task type "RunDiagnostics").
+GET http://localhost:8085/api/device/3ec91f87-5313-41e9-88fa-f53b76405b99/tasks
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDM2NTM1MTcsImlzcyI6InVzZXIiLCJzdWIiOiJhZmI4OGQyZS1iMTYxLTRmYWYtOTVkNi1kM2QzMWY4YTYxNDIifQ.TVkcKL9sOyr4OqQqSr43HLAJKMlKrztPqe1cDNgnOeM
+
+### Self-hosted download endpoint, exercised directly without going through a CPE at all.
+GET http://localhost:8085/speedtest/download?bytes=10485760
+
+### Self-hosted upload endpoint, same - any client can hit this directly to sanity-check it.
+POST http://localhost:8085/speedtest/upload
+Content-Type: application/octet-stream
+
+test-payload
