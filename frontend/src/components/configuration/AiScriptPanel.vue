@@ -5,11 +5,12 @@ import Textarea from 'primevue/textarea'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { RouterLink } from 'vue-router'
+import ScriptCodeEditor from '@/components/code/ScriptCodeEditor.vue'
 import { aiApi } from '@/api/endpoints/ai.api'
 import type { ApiEnvelope } from '@/api/types/apiEnvelope'
 
 const visible = defineModel<boolean>('visible', { required: true })
-const props = defineProps<{ events?: string; requests?: string }>()
+const props = defineProps<{ events?: string; requests?: string; currentScript?: string }>()
 const emit = defineEmits<{ insert: [string] }>()
 
 const prompt = ref('')
@@ -44,6 +45,7 @@ async function generate() {
       prompt: prompt.value,
       events: props.events,
       requests: props.requests,
+      currentScript: props.currentScript,
     })
     script.value = result.script
     explanation.value = result.explanation
@@ -84,6 +86,10 @@ function insertScript() {
         fluid
         placeholder="e.g. rename the first SSID from the last 4 bytes of the WAN MAC address"
       />
+      <small v-if="currentScript?.trim()" class="hint">
+        The script currently in the editor will be sent along as context, so you can ask for
+        changes to it.
+      </small>
     </div>
 
     <div class="actions">
@@ -92,9 +98,9 @@ function insertScript() {
 
     <div v-if="script" class="result">
       <p v-if="explanation" class="explanation">{{ explanation }}</p>
-      <pre class="code-preview">{{ script }}</pre>
+      <ScriptCodeEditor v-model="script" readonly />
       <div class="actions">
-        <Button label="Insert as new script" icon="pi pi-plus" @click="insertScript" />
+        <Button label="Use this script" icon="pi pi-check" @click="insertScript" />
       </div>
     </div>
   </div>
@@ -118,6 +124,10 @@ function insertScript() {
   gap: 0.375rem;
 }
 
+.hint {
+  opacity: 0.6;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -137,15 +147,4 @@ function insertScript() {
   opacity: 0.85;
 }
 
-.code-preview {
-  background: var(--p-surface-900, #1e1e1e);
-  color: var(--p-surface-0, #f1f1f1);
-  border-radius: 8px;
-  padding: 0.75rem;
-  font-family: monospace;
-  font-size: 0.85rem;
-  overflow-x: auto;
-  white-space: pre;
-  margin: 0;
-}
 </style>

@@ -29,13 +29,15 @@ type AIConfig struct {
 	BaseURL  string
 }
 
-// GenerateRequest is the free-text prompt plus optional provisioning-rule context (trigger
-// events/requests) that helps the model produce a script matching how it'll actually be
-// invoked.
+// GenerateRequest is the free-text prompt plus optional context that helps the model
+// produce a script matching how it'll actually be invoked: the provisioning rule's trigger
+// events/requests, and the script currently in the editor (if any), so a follow-up prompt
+// can ask for a change to what's already there instead of always starting from scratch.
 type GenerateRequest struct {
-	Prompt   string
-	Events   string
-	Requests string
+	Prompt        string
+	Events        string
+	Requests      string
+	CurrentScript string
 }
 
 type GenerateResponse struct {
@@ -87,7 +89,15 @@ func buildUserMessage(req GenerateRequest) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("Write a Lua provisioning script that does the following:\n")
+	if strings.TrimSpace(req.CurrentScript) != "" {
+		b.WriteString("The script currently in the editor is:\n```lua\n")
+		b.WriteString(req.CurrentScript)
+		b.WriteString("\n```\n\n")
+		b.WriteString("Modify or extend that script to satisfy the following request. Return the " +
+			"complete updated script, not just the changed lines:\n")
+	} else {
+		b.WriteString("Write a Lua provisioning script that does the following:\n")
+	}
 	b.WriteString(req.Prompt)
 	return b.String()
 }

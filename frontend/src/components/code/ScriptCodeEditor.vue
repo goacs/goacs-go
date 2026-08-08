@@ -10,6 +10,7 @@ import { oneDark } from '@codemirror/theme-one-dark'
 const luaLanguage = StreamLanguage.define(lua)
 
 const value = defineModel<string>({ required: true })
+const props = defineProps<{ readonly?: boolean }>()
 const container = ref<HTMLDivElement>()
 let view: EditorView | undefined
 
@@ -26,6 +27,8 @@ onMounted(() => {
         keymap.of([...defaultKeymap, ...historyKeymap]),
         luaLanguage,
         oneDark,
+        EditorState.readOnly.of(!!props.readonly),
+        EditorView.editable.of(!props.readonly),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) value.value = update.state.doc.toString()
         }),

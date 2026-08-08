@@ -22,7 +22,7 @@ type ProvisionStoreRequest struct {
 	Name     string                 `json:"name" validate:"required"`
 	Events   string                 `json:"events"`
 	Requests string                 `json:"requests"`
-	Script   []string               `json:"script" validate:"required"`
+	Script   []string               `json:"script" validate:"required,max=1"`
 	Rules    []ProvisionRuleRequest `json:"rules"`
 }
 
