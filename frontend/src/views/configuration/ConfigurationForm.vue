@@ -6,7 +6,7 @@ import Message from 'primevue/message'
 import EventSelect from '@/components/selects/EventSelect.vue'
 import RequestSelect from '@/components/selects/RequestSelect.vue'
 import RuleItem from '@/components/rules/RuleItem.vue'
-import ScriptListEditor from '@/components/rules/ScriptListEditor.vue'
+import ScriptCodeEditor from '@/components/code/ScriptCodeEditor.vue'
 import AiScriptPanel from '@/components/configuration/AiScriptPanel.vue'
 import type { Provision, ProvisionRule, ProvisionStoreRequest } from '@/api/types/configuration'
 import { useApiErrors } from '@/composables/useApiErrors'
@@ -17,15 +17,17 @@ const emit = defineEmits<{ submit: [ProvisionStoreRequest] }>()
 const { fieldErrors, generalError, run } = useApiErrors()
 const aiPanelVisible = ref(false)
 
+// A provision only ever runs a single script, so form.script is kept at exactly one
+// element (never [] or >1) - see the "script" getter/setter below.
 function insertAiScript(script: string) {
-  form.script = [...form.script, script]
+  form.script = [script]
 }
 
 const form = reactive<ProvisionStoreRequest>({
   name: '',
   events: '',
   requests: '',
-  script: [],
+  script: [''],
   rules: [],
 })
 
@@ -34,7 +36,7 @@ const requestsList = reactive<{ value: string[] }>({ value: [] })
 
 function applyInitial(provision: Provision | null | undefined) {
   form.name = provision?.name ?? ''
-  form.script = provision?.script ? [...provision.script] : []
+  form.script = provision?.script?.[0] !== undefined ? [provision.script[0]] : ['']
   form.rules = provision?.rules ? provision.rules.map((r) => ({ ...r })) : []
   eventsList.value = provision?.events ? provision.events.split(',').filter(Boolean) : []
   requestsList.value = provision?.requests ? provision.requests.split(',').filter(Boolean) : []
@@ -101,7 +103,7 @@ async function submitForm() {
 
     <div class="section">
       <div class="section-header">
-        <h3>Scripts</h3>
+        <h3>Script</h3>
         <Button
           label="AI Assistant"
           icon="pi pi-sparkles"
@@ -114,9 +116,10 @@ async function submitForm() {
         v-model:visible="aiPanelVisible"
         :events="eventsList.value.join(',')"
         :requests="requestsList.value.join(',')"
+        :current-script="form.script[0]"
         @insert="insertAiScript"
       />
-      <ScriptListEditor v-model="form.script" />
+      <ScriptCodeEditor :model-value="form.script[0]" @update:model-value="(v) => (form.script = [v])" />
     </div>
 
     <div class="actions">

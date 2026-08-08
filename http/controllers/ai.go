@@ -14,9 +14,10 @@ import (
 )
 
 type GenerateScriptRequest struct {
-	Prompt   string `json:"prompt" validate:"required"`
-	Events   string `json:"events"`
-	Requests string `json:"requests"`
+	Prompt        string `json:"prompt" validate:"required"`
+	Events        string `json:"events"`
+	Requests      string `json:"requests"`
+	CurrentScript string `json:"current_script"`
 }
 
 // aiConfigFromValues reads the ai_* keys out of the generic config store (same table/
@@ -73,9 +74,10 @@ func GenerateAiScript(ctx *gin.Context) {
 	defer cancel()
 
 	result, err := provider.GenerateScript(reqCtx, ai.GenerateRequest{
-		Prompt:   genRequest.Prompt,
-		Events:   genRequest.Events,
-		Requests: genRequest.Requests,
+		Prompt:        genRequest.Prompt,
+		Events:        genRequest.Events,
+		Requests:      genRequest.Requests,
+		CurrentScript: genRequest.CurrentScript,
 	})
 	if err != nil {
 		response.ResponseError(ctx, 502, "Error", "AI script generation failed: "+err.Error())

@@ -50,7 +50,20 @@ func TestBuildUserMessage_OmitsContextSectionWhenAbsent(t *testing.T) {
 	msg := buildUserMessage(GenerateRequest{Prompt: "reboot the device"})
 
 	assert.NotContains(t, msg, "Trigger events")
+	assert.NotContains(t, msg, "currently in the editor")
 	assert.Contains(t, msg, "reboot the device")
+}
+
+func TestBuildUserMessage_IncludesCurrentScriptWhenPresent(t *testing.T) {
+	msg := buildUserMessage(GenerateRequest{
+		Prompt:        "also log the SSID",
+		CurrentScript: "local ssid = \"foo\"\nsetParameter(\"a\", ssid)",
+	})
+
+	assert.Contains(t, msg, "currently in the editor")
+	assert.Contains(t, msg, "local ssid = \"foo\"")
+	assert.Contains(t, msg, "Modify or extend that script")
+	assert.Contains(t, msg, "also log the SSID")
 }
 
 func TestNewProvider_UnknownProviderErrors(t *testing.T) {
