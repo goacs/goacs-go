@@ -98,6 +98,8 @@ func RegisterApiRoutes(gin *gin.Engine) {
 		// avoided by using the bare /provision path instead of /provision/reorder.
 		apiGroup.PUT("/provision/simulate", controllers.SimulateProvisions)
 
+		apiGroup.POST("/ai/script", controllers.GenerateAiScript)
+
 		apiGroup.GET("/faults", controllers.GetFaults)
 		apiGroup.GET("/faults/today", controllers.GetTodayFaults)
 
